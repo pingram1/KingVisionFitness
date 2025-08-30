@@ -1,6 +1,6 @@
 import mongoose, { Document, Schema } from 'mongoose';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 
 // User interface
 export interface IUser extends Document {
@@ -348,27 +348,28 @@ userSchema.methods.comparePassword = async function(candidatePassword: string): 
 
 // Method to generate JWT token
 userSchema.methods.generateAuthToken = function(): string {
-  return jwt.sign(
-    {
-      _id: this._id,
-      email: this.email,
-      tier: this.subscription.tier,
-      isTrainer: this.trainer?.isTrainer || false
-    },
-    process.env.JWT_SECRET || 'your-secret-key',
-    {
-      expiresIn: process.env.JWT_EXPIRE || '30d'
-    }
-  );
+  const payload = {
+    _id: this._id.toString(),
+    email: this.email,
+    tier: this.subscription.tier,
+    isTrainer: this.trainer?.isTrainer || false
+  };
+  
+  const secret: string = process.env.JWT_SECRET || 'your-secret-key';
+  const options = {
+    expiresIn: process.env.JWT_EXPIRE || '30d'
+  } as jwt.SignOptions;
+  
+  return jwt.sign(payload, secret, options);
 };
 
 // Method to generate refresh token
 userSchema.methods.generateRefreshToken = function(): string {
-  const refreshToken = jwt.sign(
-    { _id: this._id },
-    process.env.JWT_REFRESH_SECRET || 'your-refresh-secret',
-    { expiresIn: '90d' }
-  );
+  const payload = { _id: this._id.toString() };
+  const secret: string = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret';
+  const options = { expiresIn: '90d' } as jwt.SignOptions;
+  
+  const refreshToken = jwt.sign(payload, secret, options);
   
   // Store refresh token
   this.refreshTokens.push(refreshToken);

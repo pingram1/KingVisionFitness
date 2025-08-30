@@ -1,11 +1,10 @@
 {
   "name": "kingvision-fitness-backend",
   "version": "1.0.0",
-  "description": "Backend API for KingVision Fitness App",
-  "main": "dist/server.js",
   "scripts": {
     "start": "node dist/server.js",
-    "dev": "nodemon src/server.ts",
+    "dev": "nodemon --config nodemon.json src/server.ts",
+    "dev:quick": "node start-dev.js",
     "build": "tsc",
     "test": "jest",
     "lint": "eslint . --ext .ts"

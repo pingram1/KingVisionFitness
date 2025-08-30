@@ -2,12 +2,29 @@ import jwt from 'jsonwebtoken';
 import User, { IUser } from '../models/User';
 import { Request, Response, NextFunction } from 'express';
 
+// Properly type the User interface
+interface IUserDocument {
+  _id: any;
+  email: string;
+  subscription: {
+    tier: string;
+    status: string;
+  };
+  trainer?: {
+    isTrainer: boolean;
+  };
+  lastActive: Date;
+  emailVerified: boolean;
+  save(): Promise<any>;
+}
+
 // Extend Express Request type to include user
 declare global {
   namespace Express {
     interface Request {
-      user?: IUser;
+      user?: IUserDocument;
       token?: string;
+      group?: any;
     }
   }
 }
