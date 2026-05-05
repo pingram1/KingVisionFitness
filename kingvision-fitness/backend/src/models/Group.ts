@@ -43,6 +43,13 @@ export interface IGroup extends Document {
   coverImage?: string;
   type: 'private' | 'public';
   category: 'school' | 'corporate' | 'community' | 'challenge' | 'custom';
+  /** Tenant bubble (school / KingCamp). Required when `bubbleIsolation` is true. */
+  bubbleId?: Schema.Types.ObjectId;
+  /**
+   * When true, the group lives in a private bubble: list/search APIs MUST scope by `bubbleId`
+   * so other schools / bubbles never see this data.
+   */
+  bubbleIsolation: boolean;
   inviteCode?: string;
   inviteLink?: string;
   members: Schema.Types.ObjectId[];
@@ -101,6 +108,8 @@ export interface IGroup extends Document {
   addMember(userId: string): Promise<void>;
   removeMember(userId: string): Promise<void>;
   createPost(authorId: string, content: string, images?: string[]): Promise<void>;
+  /** Group Admin — same as admins[] membership; explicit name for RBAC docs. */
+  isGroupAdmin(userId: string): boolean;
   isAdmin(userId: string): boolean;
   isMember(userId: string): boolean;
 }
@@ -199,10 +208,19 @@ const groupSchema = new Schema<IGroup>(
       enum: ['school', 'corporate', 'community', 'challenge', 'custom'],
       default: 'community'
     },
+    bubbleId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Bubble',
+      index: true,
+    },
+    bubbleIsolation: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
     inviteCode: {
       type: String,
-      unique: true,
-      sparse: true // Allow null values but ensure uniqueness when present
+      sparse: true,
     },
     inviteLink: String,
     members: [{
@@ -358,9 +376,25 @@ const groupSchema = new Schema<IGroup>(
   }
 );
 
+groupSchema.pre('validate', function (next) {
+  if (this.bubbleIsolation && !this.bubbleId) {
+    this.invalidate(
+      'bubbleId',
+      'bubbleId is required when bubbleIsolation is enabled (private bubble tenancy)'
+    );
+  }
+  next();
+});
+
 // Indexes
 groupSchema.index({ name: 'text', description: 'text' });
+/** Invite codes are unique per bubble when set (private bubbles can reuse patterns across tenants). */
+groupSchema.index(
+  { bubbleId: 1, inviteCode: 1 },
+  { unique: true, partialFilterExpression: { inviteCode: { $exists: true, $type: 'string' } } }
+);
 groupSchema.index({ inviteCode: 1 });
+groupSchema.index({ bubbleId: 1, bubbleIsolation: 1 });
 groupSchema.index({ members: 1 });
 groupSchema.index({ admins: 1 });
 groupSchema.index({ type: 1, category: 1 });
@@ -459,15 +493,29 @@ groupSchema.statics.findByUser = function(userId: string) {
   });
 };
 
-// Static method to find public groups
-groupSchema.statics.findPublicGroups = function(limit = 20) {
+// Static method to find public groups (never returns isolated bubble groups)
+groupSchema.statics.findPublicGroups = function (limit = 20) {
   return this.find({
     type: 'public',
     'settings.visibility': 'visible',
-    'settings.isArchived': false
+    'settings.isArchived': false,
+    bubbleIsolation: false,
   })
-  .sort({ memberCount: -1, createdAt: -1 })
-  .limit(limit);
+    .sort({ memberCount: -1, createdAt: -1 })
+    .limit(limit);
+};
+
+/** Lists active groups inside one tenant bubble — use for school/KingCamp scoped APIs. */
+groupSchema.statics.findGroupsInBubble = function (
+  bubbleId: string,
+  filter: Record<string, unknown> = {}
+) {
+  return this.find({
+    bubbleId,
+    bubbleIsolation: true,
+    'settings.isArchived': false,
+    ...filter,
+  });
 };
 
 const Group = mongoose.model<IGroup>('Group', groupSchema);
