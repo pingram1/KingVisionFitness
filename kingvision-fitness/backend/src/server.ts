@@ -8,11 +8,6 @@ import mongoose from 'mongoose';
 import { Server } from 'socket.io';
 import { createServer } from 'http';
 import rateLimit from 'express-rate-limit';
-
-// Load environment variables
-dotenv.config();
-
-// Import routes (to be created)
 import authRoutes from './routes/auth.routes';
 import userRoutes from './routes/user.routes';
 import workoutRoutes from './routes/workout.routes';
@@ -21,6 +16,11 @@ import groupRoutes from './routes/group.routes';
 import messageRoutes from './routes/message.routes';
 import subscriptionRoutes from './routes/subscription.routes';
 import scheduleRoutes from './routes/schedule.routes';
+import './models/Bubble';
+import './models/Group';
+
+// Load environment variables (after imports; model files only register schemas)
+dotenv.config();
 
 // Initialize Express app
 const app: Application = express();
@@ -185,7 +185,7 @@ const connectDB = async () => {
 };
 
 // Start server
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001; // Changed to 5001 to avoid conflict with macOS AirPlay Receiver
 
 const startServer = async () => {
   await connectDB();

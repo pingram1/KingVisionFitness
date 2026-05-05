@@ -3,6 +3,24 @@ logs
 *.log
 npm-debug.log*
 yarn-debug.log*
+
+# macOS / local clutter
+.DS_Store
+
+# Personal / stock media at repo root (do not commit by default)
+/*.HEIC
+/*.heic
+/01.JPG
+/DSC*.JPG
+/IMG_*.jpg
+/IMG_*.HEIC
+/Image-*.HEIC
+/photo-output.*
+/www.kingvisionfitness.com.png
+
+# Duplicate nested checkout (embedded `.git`)
+kingvision-fitness/KingVisionFitness/
+
 yarn-error.log*
 lerna-debug.log*
 

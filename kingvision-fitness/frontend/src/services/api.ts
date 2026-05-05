@@ -1,6 +1,11 @@
 import axios from 'axios';
+import Constants from 'expo-constants';
+import { authTokenStorage } from '../storage/authTokenStorage';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+// Get API URL from environment or use default
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 
+               process.env.EXPO_PUBLIC_API_URL || 
+               'http://localhost:5001/api';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -10,10 +15,14 @@ const api = axios.create({
 });
 
 // Add token to requests
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+api.interceptors.request.use(async (config) => {
+  try {
+    const token = await authTokenStorage.getAccessToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  } catch (error) {
+    console.error('Error getting token from storage:', error);
   }
   return config;
 });
@@ -23,8 +32,12 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
+      try {
+        await authTokenStorage.clearTokens();
+        // Navigation will be handled by the app's navigation system
+      } catch (storageError) {
+        console.error('Error removing token from storage:', storageError);
+      }
     }
     return Promise.reject(error);
   }
