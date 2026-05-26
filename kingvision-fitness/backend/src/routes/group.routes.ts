@@ -8,6 +8,8 @@ import Workout from '../models/Workout';
 import { auth, authorizeRoles } from '../middleware/auth';
 import { validateBody } from '../middleware/validate';
 import { checkInBodySchema } from '../schemas/group.schemas';
+import { haversineMeters } from '../utils/geo';
+import { buildLeaderboard } from '../utils/leaderboard';
 
 const router: Router = express.Router();
 const inviteAlphabet = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
@@ -148,113 +150,6 @@ function contextualRoleLabel(groupType: GroupType, role: GroupMemberRole): strin
   return ROLE_LABELS[normalizeRoleForGroupType(groupType, role)];
 }
 
-/** Haversine distance in meters between two WGS-84 coordinates */
-function haversineMeters(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
-  const earthRadiusM = 6371000;
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return earthRadiusM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function memberDisplayName(m: {
-  user: { profile?: { firstName?: string; lastName?: string } };
-}): string {
-  if (m.user?.profile) {
-    return `${m.user.profile.firstName ?? ''} ${m.user.profile.lastName ?? ''}`.trim() || 'Member';
-  }
-  return 'Member';
-}
-
-function computePerformanceGrade(m: {
-  performanceGrade?: number;
-  workoutsCompleted?: number;
-  totalMinutes?: number;
-}): number {
-  if (typeof m.performanceGrade === 'number' && m.performanceGrade > 0) {
-    return m.performanceGrade;
-  }
-  const workouts = m.workoutsCompleted ?? 0;
-  const minutes = m.totalMinutes ?? 0;
-  return Math.min(100, Math.round(workouts * 12 + minutes * 0.15));
-}
-
-function buildStreakLeaderboard(group: any) {
-  const groupType = group.groupType as GroupType;
-  return [...(group.memberships ?? [])]
-    .sort(
-      (a: { streakCount?: number }, b: { streakCount?: number }) =>
-        (b.streakCount ?? 0) - (a.streakCount ?? 0)
-    )
-    .map(
-      (
-        m: {
-          _id?: mongoose.Types.ObjectId;
-          user: { _id?: mongoose.Types.ObjectId; profile?: { firstName?: string; lastName?: string } };
-          role: GroupMemberRole;
-          streakCount?: number;
-        },
-        index: number
-      ) => {
-        const role = normalizeRoleForGroupType(groupType, m.role);
-        return {
-          rank: index + 1,
-          userId: m.user?._id ?? m.user,
-          name: memberDisplayName(m),
-          role,
-          roleLabel: contextualRoleLabel(groupType, m.role),
-          streakCount: m.streakCount ?? 0,
-        };
-      }
-    );
-}
-
-function buildPerformanceLeaderboard(group: any) {
-  const groupType = group.groupType as GroupType;
-  return [...(group.memberships ?? [])]
-    .filter((m: { role: GroupMemberRole }) => m.role !== 'coach')
-    .sort(
-      (a: { performanceGrade?: number; workoutsCompleted?: number; totalMinutes?: number }, b: {
-        performanceGrade?: number;
-        workoutsCompleted?: number;
-        totalMinutes?: number;
-      }) => computePerformanceGrade(b) - computePerformanceGrade(a)
-    )
-    .map(
-      (
-        m: {
-          _id?: mongoose.Types.ObjectId;
-          user: { _id?: mongoose.Types.ObjectId; profile?: { firstName?: string; lastName?: string } };
-          role: GroupMemberRole;
-          performanceGrade?: number;
-          workoutsCompleted?: number;
-          totalMinutes?: number;
-        },
-        index: number
-      ) => {
-        const role = normalizeRoleForGroupType(groupType, m.role);
-        return {
-          rank: index + 1,
-          userId: m.user?._id ?? m.user,
-          name: memberDisplayName(m),
-          role,
-          roleLabel: contextualRoleLabel(groupType, m.role),
-          performanceGrade: computePerformanceGrade(m),
-          workoutsCompleted: m.workoutsCompleted ?? 0,
-          totalMinutes: m.totalMinutes ?? 0,
-        };
-      }
-    );
-}
-
 function formatGroupSummary(group: any, userId: string) {
   const groupType = group.groupType as GroupType;
   const membership = group.getMembership
@@ -283,13 +178,6 @@ function formatGroupSummary(group: any, userId: string) {
       averageWorkoutsPerWeek: group.stats?.averageWorkoutsPerWeek ?? 0,
     },
   };
-}
-
-function buildLeaderboard(group: any) {
-  if (group.groupType === 'athletic_team') {
-    return buildPerformanceLeaderboard(group);
-  }
-  return buildStreakLeaderboard(group);
 }
 
 // @route   GET /api/groups/my-groups
