@@ -74,6 +74,10 @@ function parseAthleteStatsPayload(body: any): {
 // @route   GET /api/users/active-clients
 // @desc    List ACTIVE_CLIENT tier users for custom workout assignment
 // @access  Private — SUPER_ADMIN | TRAINER
+//
+// TODO(security/S7-followup): Scope this list per-trainer once the User model
+// gains an `assignedTrainerId` relationship. Today every TRAINER sees every
+// active client's email — see docs/audits/2026-05-26-enterprise-audit.md (S7).
 router.get(
   '/active-clients',
   auth,

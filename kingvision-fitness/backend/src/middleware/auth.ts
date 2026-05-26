@@ -1,6 +1,9 @@
 import jwt from 'jsonwebtoken';
 import User, { IUser, UserRole } from '../models/User';
 import { Request, Response, NextFunction } from 'express';
+import { env } from '../config/env';
+
+const JWT_VERIFY_OPTIONS: jwt.VerifyOptions = { algorithms: ['HS256'] };
 
 // Properly type the User interface
 interface IUserDocument {
@@ -42,25 +45,18 @@ export const auth = async (req: Request, res: Response, next: NextFunction) => {
     }
 
     const token = authHeader.replace('Bearer ', '');
-    
-    // Verify token
-    const decoded: any = jwt.verify(
-      token,
-      process.env.JWT_SECRET || 'your-secret-key'
-    );
 
-    // Find user
+    const decoded: any = jwt.verify(token, env.JWT_SECRET, JWT_VERIFY_OPTIONS);
+
     const user = await User.findById(decoded._id);
 
     if (!user) {
       throw new Error();
     }
 
-    // Update last active
     user.lastActive = new Date();
     await user.save();
 
-    // Attach user and token to request
     req.user = user;
     req.token = token;
 
@@ -223,11 +219,8 @@ export const optionalAuth = async (
     }
 
     const token = authHeader.replace('Bearer ', '');
-    
-    const decoded: any = jwt.verify(
-      token,
-      process.env.JWT_SECRET || 'your-secret-key'
-    );
+
+    const decoded: any = jwt.verify(token, env.JWT_SECRET, JWT_VERIFY_OPTIONS);
 
     const user = await User.findById(decoded._id);
 
@@ -310,7 +303,11 @@ export const userRateLimit = (
   };
 };
 
-// Validate request body
+/**
+ * @deprecated Use `validateBody` from `middleware/validate.ts` with a zod
+ *   schema instead. This helper only checks key presence (no type, no shape).
+ *   Kept for backwards-compat — currently has zero callers.
+ */
 export const validateBody = (requiredFields: string[]) => {
   return (req: Request, res: Response, next: NextFunction) => {
     const missingFields = requiredFields.filter(field => !req.body[field]);

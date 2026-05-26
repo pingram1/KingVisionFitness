@@ -1,8 +1,23 @@
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 const TOKEN_KEY = 'token';
 const REFRESH_KEY = 'refreshToken';
+
+// KingVision ships iOS + Android only. The previous AsyncStorage fallback for
+// web (and unavailable SecureStore environments) was an XSS exposure surface
+// for JWTs. We now refuse to store tokens unless Keychain / Keystore is
+// actually available — callers get a hard error instead of silent insecurity.
+class InsecureStorageError extends Error {
+  constructor() {
+    super(
+      'Secure token storage is unavailable. KingVision does not ship a web build; ' +
+        'tokens cannot be stored in AsyncStorage / localStorage. Run on iOS or Android.'
+    );
+    this.name = 'InsecureStorageError';
+  }
+}
 
 let migrationPromise: Promise<void> | null = null;
 
@@ -43,10 +58,11 @@ async function secureDeleteSafe(key: string): Promise<void> {
 }
 
 /**
- * Prefer Keychain / Keystore when Expo SecureStore is available (iOS/Android).
- * Falls back to AsyncStorage on Web and other environments — document as weaker posture for web-only trials.
+ * SecureStore-backed Keychain (iOS) / Keystore (Android) availability check.
+ * Returns false on web and any environment without hardware-backed storage.
  */
 export async function isSecureHardwareAvailable(): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
   try {
     return await SecureStore.isAvailableAsync();
   } catch {
@@ -57,23 +73,28 @@ export async function isSecureHardwareAvailable(): Promise<boolean> {
 async function writeSecret(key: string, value: string): Promise<void> {
   await ensureMigratedFromAsyncStorage();
   const secureOk = await isSecureHardwareAvailable();
-  if (secureOk) {
-    await SecureStore.setItemAsync(key, value, {
-      keychainAccessible: SecureStore.WHEN_UNLOCKED,
-    });
-    await AsyncStorage.removeItem(key);
-  } else {
-    await AsyncStorage.setItem(key, value);
+  if (!secureOk) {
+    throw new InsecureStorageError();
   }
+  await SecureStore.setItemAsync(key, value, {
+    keychainAccessible: SecureStore.WHEN_UNLOCKED,
+  });
+  // Wipe any stragglers from the pre-migration AsyncStorage path.
+  await AsyncStorage.removeItem(key).catch(() => {});
 }
 
 async function readSecret(key: string): Promise<string | null> {
   await ensureMigratedFromAsyncStorage();
   const secureOk = await isSecureHardwareAvailable();
-  if (secureOk) {
-    return (await SecureStore.getItemAsync(key)) ?? null;
+  if (!secureOk) {
+    // No throw on read — lets the app render the unauthenticated state
+    // cleanly on web/unsupported targets without crashing the boot screen.
+    // Defensively wipe any pre-migration tokens that might still be sitting
+    // in AsyncStorage so they can't be exfiltrated later.
+    AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_KEY]).catch(() => {});
+    return null;
   }
-  return AsyncStorage.getItem(key);
+  return (await SecureStore.getItemAsync(key)) ?? null;
 }
 
 export const authTokenStorage = {
@@ -88,10 +109,12 @@ export const authTokenStorage = {
   },
 
   async clearTokens(): Promise<void> {
-    await AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_KEY]);
+    await AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_KEY]).catch(() => {});
     await secureDeleteSafe(TOKEN_KEY);
     await secureDeleteSafe(REFRESH_KEY);
   },
 
   migrateLegacyTokensFromAsyncStorage: ensureMigratedFromAsyncStorage,
 };
+
+export { InsecureStorageError };

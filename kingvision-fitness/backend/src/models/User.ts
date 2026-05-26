@@ -1,6 +1,7 @@
 import mongoose, { Document, Schema } from 'mongoose';
 import bcrypt from 'bcryptjs';
-import jwt, { SignOptions } from 'jsonwebtoken';
+import jwt from 'jsonwebtoken';
+import { env } from '../config/env';
 
 export type SubscriptionTier = 'BASIC' | 'SPECIFIED' | 'ACTIVE_CLIENT';
 
@@ -562,7 +563,10 @@ userSchema.methods.comparePassword = async function(candidatePassword: string): 
   }
 };
 
-// Method to generate JWT token
+// Method to generate JWT access token.
+// Access TTL defaults to 15m (set in src/config/env.ts) — paired with the
+// frontend's silent-refresh interceptor that swaps an expired access token
+// for a fresh one via the long-lived refresh token.
 userSchema.methods.generateAuthToken = function(): string {
   const payload = {
     _id: this._id.toString(),
@@ -572,22 +576,23 @@ userSchema.methods.generateAuthToken = function(): string {
     subscriptionTier: this.subscriptionTier,
     isTrainer: this.trainer?.isTrainer || false
   };
-  
-  const secret: string = process.env.JWT_SECRET || 'your-secret-key';
-  const options = {
-    expiresIn: process.env.JWT_EXPIRE || '30d'
-  } as jwt.SignOptions;
-  
-  return jwt.sign(payload, secret, options);
+
+  const options: jwt.SignOptions = {
+    algorithm: 'HS256',
+    expiresIn: env.JWT_ACCESS_TTL as jwt.SignOptions['expiresIn'],
+  };
+
+  return jwt.sign(payload, env.JWT_SECRET, options);
 };
 
-// Method to generate refresh token
 userSchema.methods.generateRefreshToken = function(): string {
   const payload = { _id: this._id.toString() };
-  const secret: string = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret';
-  const options = { expiresIn: '90d' } as jwt.SignOptions;
-  
-  const refreshToken = jwt.sign(payload, secret, options);
+  const options: jwt.SignOptions = {
+    algorithm: 'HS256',
+    expiresIn: env.JWT_REFRESH_TTL as jwt.SignOptions['expiresIn'],
+  };
+
+  const refreshToken = jwt.sign(payload, env.JWT_REFRESH_SECRET, options);
   
   // Store refresh token
   this.refreshTokens.push(refreshToken);

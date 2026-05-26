@@ -1,5 +1,7 @@
 import express, { Request, Response, Router } from 'express';
+import crypto from 'crypto';
 import { auth } from '../middleware/auth';
+import { env } from '../config/env';
 
 const router: Router = express.Router();
 
@@ -62,14 +64,30 @@ router.post('/create-checkout-session', auth, async (req: Request, res: Response
  * POST /api/billing/dev-upgrade
  *
  * DEVELOPER BYPASS — instantly promotes the authenticated user to
- * `ACTIVE_CLIENT` without touching Stripe. Hard-disabled in production via the
- * NODE_ENV guard so it cannot leak to live billing. Returns the updated user
- * payload (same shape as /users/profile) so the client can swap the local
- * AuthContext state without a follow-up fetch.
+ * `ACTIVE_CLIENT` without touching Stripe. Defense in depth:
+ *   1. NODE_ENV must not be `production`
+ *   2. Caller must send `X-Dev-Bypass-Secret` matching env.DEV_BYPASS_SECRET
+ *      (when configured). If the env var is unset, the endpoint is 404.
+ *
+ * This makes the route useless to a leaked build that mis-sets NODE_ENV,
+ * because the secret header is also required.
  */
 router.post('/dev-upgrade', auth, async (req: Request, res: Response) => {
-  if (process.env.NODE_ENV === 'production') {
+  if (env.NODE_ENV === 'production') {
     return res.status(404).json({ success: false, message: 'Not found' });
+  }
+
+  if (!env.DEV_BYPASS_SECRET) {
+    return res.status(404).json({ success: false, message: 'Not found' });
+  }
+
+  // Constant-time compare so the response time can't leak how many characters
+  // of the secret are correct.
+  const providedSecret = req.header('x-dev-bypass-secret') ?? '';
+  const expected = Buffer.from(env.DEV_BYPASS_SECRET);
+  const provided = Buffer.from(providedSecret);
+  if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
+    return res.status(403).json({ success: false, message: 'Forbidden' });
   }
 
   try {

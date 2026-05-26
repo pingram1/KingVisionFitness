@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios';
 import Constants from 'expo-constants';
 import { authTokenStorage } from '../storage/authTokenStorage';
 
@@ -21,7 +21,6 @@ if (__DEV__) {
   console.log('[api] baseURL =', API_URL);
 }
 
-// Add token to requests
 api.interceptors.request.use(async (config) => {
   try {
     const token = await authTokenStorage.getAccessToken();
@@ -34,10 +33,57 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
-// Handle token expiration + dev logging for failed requests (status + body)
+// ── Silent refresh on 401 ──────────────────────────────────────────────────────
+// Access tokens now expire in 15 minutes. When a request fails with 401 we try
+// the long-lived refresh token once. Concurrent 401s share a single in-flight
+// refresh promise so we never queue parallel /auth/refresh calls.
+
+type RetriableConfig = InternalAxiosRequestConfig & { _retry?: boolean };
+
+let inflightRefresh: Promise<string | null> | null = null;
+
+async function requestNewAccessToken(): Promise<string | null> {
+  const refreshToken = await authTokenStorage.getRefreshToken();
+  if (!refreshToken) return null;
+
+  try {
+    // Bare axios so this call does NOT loop back through our 401 interceptor.
+    const res = await axios.post(
+      `${API_URL}/auth/refresh`,
+      { refreshToken },
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+    const newToken: string | undefined = res.data?.data?.token;
+    if (!newToken) return null;
+    await authTokenStorage.setTokens(newToken, refreshToken);
+    return newToken;
+  } catch {
+    return null;
+  }
+}
+
+function refreshAccessTokenOnce(): Promise<string | null> {
+  if (!inflightRefresh) {
+    inflightRefresh = requestNewAccessToken().finally(() => {
+      inflightRefresh = null;
+    });
+  }
+  return inflightRefresh;
+}
+
+function isAuthEndpoint(url?: string | null): boolean {
+  if (!url) return false;
+  return (
+    url.includes('/auth/refresh') ||
+    url.includes('/auth/login') ||
+    url.includes('/auth/register') ||
+    url.includes('/auth/logout')
+  );
+}
+
 api.interceptors.response.use(
   (response) => response,
-  async (error) => {
+  async (error: AxiosError) => {
     if (__DEV__ && error.response) {
       const { status, statusText, data } = error.response;
       // eslint-disable-next-line no-console -- intentional dev diagnostic
@@ -50,14 +96,35 @@ api.interceptors.response.use(
         api.defaults.baseURL
       );
     }
-    if (error.response?.status === 401) {
+
+    const originalRequest = error.config as RetriableConfig | undefined;
+    const status = error.response?.status;
+
+    if (
+      status === 401 &&
+      originalRequest &&
+      !originalRequest._retry &&
+      !isAuthEndpoint(originalRequest.url)
+    ) {
+      originalRequest._retry = true;
+
+      const newAccessToken = await refreshAccessTokenOnce();
+
+      if (newAccessToken) {
+        originalRequest.headers = originalRequest.headers || {};
+        (originalRequest.headers as Record<string, string>).Authorization = `Bearer ${newAccessToken}`;
+        return api.request(originalRequest as AxiosRequestConfig);
+      }
+
+      // Refresh failed — clear tokens and surface the 401 to the caller so
+      // navigation guards / AuthContext can route back to the login screen.
       try {
         await authTokenStorage.clearTokens();
-        // Navigation will be handled by the app's navigation system
       } catch (storageError) {
         console.error('Error removing token from storage:', storageError);
       }
     }
+
     return Promise.reject(error);
   }
 );

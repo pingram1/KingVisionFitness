@@ -6,6 +6,8 @@ import Group, { type GroupMemberRole, type GroupType } from '../models/Group';
 import User from '../models/User';
 import Workout from '../models/Workout';
 import { auth, authorizeRoles } from '../middleware/auth';
+import { validateBody } from '../middleware/validate';
+import { checkInBodySchema } from '../schemas/group.schemas';
 
 const router: Router = express.Router();
 const inviteAlphabet = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
@@ -753,17 +755,14 @@ router.post(
 // @route   POST /api/groups/:id/check-in
 // @desc    GPS check-in for public communities — increments streak when within radius
 // @access  Private (members only)
-router.post('/:id/check-in', auth, async (req: any, res: any) => {
+router.post(
+  '/:id/check-in',
+  auth,
+  validateBody(checkInBodySchema),
+  async (req: any, res: any) => {
   try {
-    const latitude = Number(req.body.latitude);
-    const longitude = Number(req.body.longitude);
-
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      return res.status(400).json({
-        success: false,
-        message: 'latitude and longitude are required numeric values',
-      });
-    }
+    // checkInBodySchema guarantees finite, range-bounded WGS-84 coordinates.
+    const { latitude, longitude } = req.body as { latitude: number; longitude: number };
 
     const group = await Group.findById(req.params.id);
     if (!group) {
@@ -856,7 +855,8 @@ router.post('/:id/check-in', auth, async (req: any, res: any) => {
     console.error('Error during group check-in:', error);
     res.status(500).json({ success: false, message: 'Error processing check-in' });
   }
-});
+  }
+);
 
 // @route   POST /api/groups/:id/workouts/:workoutId/modify
 // @desc    Clone and customize a KingVision workout for this group (coaches only)

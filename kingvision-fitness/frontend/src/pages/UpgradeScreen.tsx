@@ -97,7 +97,15 @@ export default function UpgradeScreen() {
   const handleDevUpgrade = async () => {
     try {
       setUpgrading(true);
-      await api.post('/billing/dev-upgrade');
+      // Backend now requires both DEV_BYPASS_SECRET env + matching header.
+      // EXPO_PUBLIC_DEV_BYPASS_SECRET is intentionally undefined in production
+      // builds; the backend will respond 404 there which is the correct gate.
+      const devSecret = process.env.EXPO_PUBLIC_DEV_BYPASS_SECRET;
+      await api.post(
+        '/billing/dev-upgrade',
+        {},
+        devSecret ? { headers: { 'X-Dev-Bypass-Secret': devSecret } } : undefined
+      );
       const fresh = await refreshProfile();
       if (fresh?.subscriptionTier !== 'ACTIVE_CLIENT') {
         console.warn(

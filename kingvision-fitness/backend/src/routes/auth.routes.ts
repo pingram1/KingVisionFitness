@@ -5,6 +5,7 @@ import { auth } from '../middleware/auth';
 import { sendEmail } from '../services/email.service';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import { env } from '../config/env';
 
 const router: Router = express.Router();
 
@@ -81,7 +82,7 @@ router.post('/register', [
     await user.save();
 
     // Send verification email (do not fail registration if SMTP/SendGrid is misconfigured in dev)
-    const verificationUrl = `${process.env.APP_URL || 'http://localhost:5001'}/verify-email?token=${emailVerificationToken}`;
+    const verificationUrl = `${env.APP_URL}/verify-email?token=${emailVerificationToken}`;
     let verificationEmailSent = true;
     try {
       await sendEmail({
@@ -201,11 +202,9 @@ router.post('/refresh', async (req: any, res: any) => {
       });
     }
 
-    // Verify refresh token
-    const decoded: any = jwt.verify(
-      refreshToken,
-      process.env.JWT_REFRESH_SECRET || 'your-refresh-secret'
-    );
+    const decoded: any = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET, {
+      algorithms: ['HS256'],
+    });
 
     // Find user and check if refresh token exists
     const user = await User.findById(decoded._id);
@@ -340,7 +339,7 @@ router.post('/forgot-password', [
     await user.save();
 
     // Send reset email
-    const resetUrl = `${process.env.APP_URL}/reset-password?token=${resetToken}`;
+    const resetUrl = `${env.APP_URL}/reset-password?token=${resetToken}`;
     await sendEmail({
       to: email,
       subject: 'Password Reset Request - KingVision Fitness',
