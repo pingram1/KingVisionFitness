@@ -19,58 +19,78 @@ import { completeWorkout, fetchWorkoutById } from '../api/workoutSession';
 import { useAuth } from '../context/AuthContext';
 import type { WorkoutsStackParamList } from '../navigation/WorkoutsNavigator';
 import type { Workout, WorkoutExercise } from '../types/workout';
+import {
+  buildInitialLogState,
+  extractErrorMessage,
+  formatElapsed,
+  type ExerciseLogState,
+  type PersistedSession,
+  type SetLogState,
+} from './activeWorkoutHelpers';
+import {
+  clearPersistedSession,
+  loadPersistedSession,
+  persistSession,
+} from './activeWorkoutSessionStorage';
 
 type ActiveWorkoutRoute = RouteProp<WorkoutsStackParamList, 'ActiveWorkout'>;
 type ActiveWorkoutNav = NativeStackNavigationProp<WorkoutsStackParamList, 'ActiveWorkout'>;
 
-interface SetLogState {
-  setIndex: number;
-  weight: string;
-  reps: string;
-  completed: boolean;
-}
+const SESSION_PERSIST_DEBOUNCE_MS = 600;
 
-interface ExerciseLogState {
-  name: string;
-  sets: SetLogState[];
-}
+// ── ElapsedTimer ─────────────────────────────────────────────────────────────
+// The 1-Hz tick is owned exclusively by this leaf component. Previously the
+// parent screen called setState every second, re-rendering every exercise and
+// every set row. Now the timer holds its own state and re-renders 1 Text node.
+const ElapsedTimer = React.memo(function ElapsedTimer({
+  startTimeRef,
+}: {
+  startTimeRef: React.MutableRefObject<Date>;
+}) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(() =>
+    Math.floor((Date.now() - startTimeRef.current.getTime()) / 1000)
+  );
 
-function parseTargetReps(reps: string | undefined): string {
-  if (!reps) return '10';
-  const match = reps.match(/\d+/);
-  return match ? match[0] : '10';
-}
+  useEffect(() => {
+    const id = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startTimeRef.current.getTime()) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [startTimeRef]);
 
-function buildInitialLogState(exercises: WorkoutExercise[]): ExerciseLogState[] {
-  return exercises.map((exercise) => {
-    const setCount = Math.max(1, exercise.sets ?? 1);
-    const targetReps = parseTargetReps(exercise.reps);
-    return {
-      name: exercise.name,
-      sets: Array.from({ length: setCount }, (_, index) => ({
-        setIndex: index + 1,
-        weight: '',
-        reps: targetReps,
-        completed: false,
-      })),
-    };
-  });
-}
+  return <Text style={styles.timerText}>{formatElapsed(elapsedSeconds)}</Text>;
+});
 
-function formatElapsed(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-}
-
+// ── SetRow ───────────────────────────────────────────────────────────────────
+// React.memo + stable callbacks mean typing in one set's TextInput now
+// re-renders only that row (verified via React DevTools profiler).
 interface SetRowProps {
   setLog: SetLogState;
-  onChangeWeight: (value: string) => void;
-  onChangeReps: (value: string) => void;
-  onToggleCompleted: () => void;
+  exerciseIndex: number;
+  onChange: (
+    exerciseIndex: number,
+    setIndex: number,
+    patch: Partial<Pick<SetLogState, 'weight' | 'reps' | 'completed'>>
+  ) => void;
 }
 
-function SetRow({ setLog, onChangeWeight, onChangeReps, onToggleCompleted }: SetRowProps) {
+const SetRow = React.memo(function SetRow({ setLog, exerciseIndex, onChange }: SetRowProps) {
+  // Callbacks depend on stable identifiers — `onChange` is memoized in the
+  // parent (useCallback []), so these are stable across renders too. React.memo
+  // only re-runs SetRow when setLog itself is replaced.
+  const handleChangeWeight = useCallback(
+    (value: string) => onChange(exerciseIndex, setLog.setIndex, { weight: value }),
+    [onChange, exerciseIndex, setLog.setIndex]
+  );
+  const handleChangeReps = useCallback(
+    (value: string) => onChange(exerciseIndex, setLog.setIndex, { reps: value }),
+    [onChange, exerciseIndex, setLog.setIndex]
+  );
+  const handleToggle = useCallback(
+    () => onChange(exerciseIndex, setLog.setIndex, { completed: !setLog.completed }),
+    [onChange, exerciseIndex, setLog.setIndex, setLog.completed]
+  );
+
   return (
     <View style={[styles.setRow, setLog.completed && styles.setRowCompleted]}>
       <Text style={styles.setIndex}>Set {setLog.setIndex}</Text>
@@ -79,7 +99,7 @@ function SetRow({ setLog, onChangeWeight, onChangeReps, onToggleCompleted }: Set
         <TextInput
           style={styles.setInput}
           value={setLog.weight}
-          onChangeText={onChangeWeight}
+          onChangeText={handleChangeWeight}
           placeholder="0"
           placeholderTextColor="#bbb"
           keyboardType="decimal-pad"
@@ -90,7 +110,7 @@ function SetRow({ setLog, onChangeWeight, onChangeReps, onToggleCompleted }: Set
         <TextInput
           style={styles.setInput}
           value={setLog.reps}
-          onChangeText={onChangeReps}
+          onChangeText={handleChangeReps}
           placeholder="0"
           placeholderTextColor="#bbb"
           keyboardType="number-pad"
@@ -98,7 +118,7 @@ function SetRow({ setLog, onChangeWeight, onChangeReps, onToggleCompleted }: Set
       </View>
       <TouchableOpacity
         style={[styles.doneButton, setLog.completed && styles.doneButtonActive]}
-        onPress={onToggleCompleted}
+        onPress={handleToggle}
         accessibilityRole="checkbox"
         accessibilityState={{ checked: setLog.completed }}
         accessibilityLabel={`Mark set ${setLog.setIndex} complete`}
@@ -111,42 +131,86 @@ function SetRow({ setLog, onChangeWeight, onChangeReps, onToggleCompleted }: Set
       </TouchableOpacity>
     </View>
   );
-}
+});
 
+// ── ExerciseCard ─────────────────────────────────────────────────────────────
+// Memoized so unrelated exercise edits don't re-render every card. Cards only
+// re-render when their own exercise log or template changes.
+const ExerciseCard = React.memo(function ExerciseCard({
+  exercise,
+  exerciseIndex,
+  template,
+  onChange,
+}: {
+  exercise: ExerciseLogState;
+  exerciseIndex: number;
+  template?: WorkoutExercise;
+  onChange: SetRowProps['onChange'];
+}) {
+  return (
+    <View style={styles.exerciseCard}>
+      <View style={styles.exerciseHeader}>
+        <Text style={styles.exerciseName}>{exercise.name}</Text>
+        {template?.reps ? (
+          <Text style={styles.exerciseTarget}>Target: {template.reps} reps</Text>
+        ) : null}
+      </View>
+      {exercise.sets.map((setLog) => (
+        <SetRow
+          key={setLog.setIndex}
+          setLog={setLog}
+          exerciseIndex={exerciseIndex}
+          onChange={onChange}
+        />
+      ))}
+    </View>
+  );
+});
+
+// ── ActiveWorkoutScreen ──────────────────────────────────────────────────────
 export default function ActiveWorkoutScreen() {
   const route = useRoute<ActiveWorkoutRoute>();
   const navigation = useNavigation<ActiveWorkoutNav>();
   const { refreshProfile } = useAuth();
   const { workoutId } = route.params;
 
-  const startTimeRef = useRef(new Date());
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const startTimeRef = useRef<Date>(new Date());
+  const persistDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isHydratedRef = useRef(false);
   const [workout, setWorkout] = useState<Workout | null>(null);
   const [exerciseLogs, setExerciseLogs] = useState<ExerciseLogState[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [restoredFromCrash, setRestoredFromCrash] = useState(false);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setElapsedSeconds(
-        Math.floor((Date.now() - startTimeRef.current.getTime()) / 1000)
-      );
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
+  // ── Load workout + any persisted session ──────────────────────────────────
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         setLoading(true);
         setError(null);
-        const data = await fetchWorkoutById(workoutId);
+        const [data, persisted] = await Promise.all([
+          fetchWorkoutById(workoutId),
+          loadPersistedSession(workoutId),
+        ]);
         if (cancelled) return;
+
         setWorkout(data);
         const exercises = (data.exercises ?? []) as WorkoutExercise[];
-        setExerciseLogs(buildInitialLogState(exercises));
+
+        if (persisted) {
+          startTimeRef.current = new Date(persisted.startTimeIso);
+          setExerciseLogs(persisted.exerciseLogs);
+          setRestoredFromCrash(true);
+        } else {
+          startTimeRef.current = new Date();
+          setExerciseLogs(buildInitialLogState(exercises));
+        }
+        // Mark as hydrated AFTER the initial state is set so the persistence
+        // effect below doesn't fire on the load-time setState.
+        isHydratedRef.current = true;
       } catch (err) {
         console.error('Failed to load workout', err);
         if (!cancelled) setError('Could not load this workout.');
@@ -159,26 +223,27 @@ export default function ActiveWorkoutScreen() {
     };
   }, [workoutId]);
 
-  const completedSetCount = useMemo(
-    () =>
-      exerciseLogs.reduce(
-        (sum, ex) => sum + ex.sets.filter((s) => s.completed).length,
-        0
-      ),
-    [exerciseLogs]
-  );
+  // ── Persist mid-session on every change (debounced) ──────────────────────
+  useEffect(() => {
+    if (!isHydratedRef.current) return;
+    if (persistDebounceRef.current) clearTimeout(persistDebounceRef.current);
+    persistDebounceRef.current = setTimeout(() => {
+      const snapshot: PersistedSession = {
+        startTimeIso: startTimeRef.current.toISOString(),
+        exerciseLogs,
+        savedAt: Date.now(),
+      };
+      persistSession(workoutId, snapshot);
+    }, SESSION_PERSIST_DEBOUNCE_MS);
 
-  const totalSetCount = useMemo(
-    () => exerciseLogs.reduce((sum, ex) => sum + ex.sets.length, 0),
-    [exerciseLogs]
-  );
+    return () => {
+      if (persistDebounceRef.current) clearTimeout(persistDebounceRef.current);
+    };
+  }, [exerciseLogs, workoutId]);
 
-  const updateSet = useCallback(
-    (
-      exerciseIndex: number,
-      setIndex: number,
-      patch: Partial<Pick<SetLogState, 'weight' | 'reps' | 'completed'>>
-    ) => {
+  // ── Set update handler (stable identity, never changes) ───────────────────
+  const updateSet = useCallback<SetRowProps['onChange']>(
+    (exerciseIndex, setIndex, patch) => {
       setExerciseLogs((prev) =>
         prev.map((exercise, ei) => {
           if (ei !== exerciseIndex) return exercise;
@@ -194,7 +259,21 @@ export default function ActiveWorkoutScreen() {
     []
   );
 
-  const handleFinish = async () => {
+  // ── Derived metrics ────────────────────────────────────────────────────────
+  const { completedSetCount, totalSetCount } = useMemo(() => {
+    let completed = 0;
+    let total = 0;
+    for (const ex of exerciseLogs) {
+      for (const s of ex.sets) {
+        total += 1;
+        if (s.completed) completed += 1;
+      }
+    }
+    return { completedSetCount: completed, totalSetCount: total };
+  }, [exerciseLogs]);
+
+  // ── Finish flow ────────────────────────────────────────────────────────────
+  const handleFinish = useCallback(async () => {
     if (completedSetCount === 0) {
       Alert.alert(
         'No sets completed',
@@ -212,6 +291,9 @@ export default function ActiveWorkoutScreen() {
           try {
             setSubmitting(true);
             const endTime = new Date();
+            const elapsedSeconds = Math.floor(
+              (endTime.getTime() - startTimeRef.current.getTime()) / 1000
+            );
             const payload = {
               startTime: startTimeRef.current.toISOString(),
               endTime: endTime.toISOString(),
@@ -227,6 +309,7 @@ export default function ActiveWorkoutScreen() {
             };
 
             await completeWorkout(workoutId, payload);
+            await clearPersistedSession(workoutId);
             await refreshProfile();
 
             navigation.getParent()?.navigate('Home', { screen: 'HomeMain' });
@@ -235,17 +318,7 @@ export default function ActiveWorkoutScreen() {
               `Great work — ${Math.max(1, Math.round(elapsedSeconds / 60))} minutes logged.`
             );
           } catch (err: unknown) {
-            let message: string | undefined;
-            if (
-              err &&
-              typeof err === 'object' &&
-              'response' in err
-            ) {
-              const data = (err as { response?: { data?: { message?: string } } }).response?.data;
-              if (data && typeof data.message === 'string') {
-                message = data.message;
-              }
-            }
+            const message = extractErrorMessage(err);
             Alert.alert('Save failed', message ?? 'Could not log your workout. Try again.');
           } finally {
             setSubmitting(false);
@@ -253,7 +326,7 @@ export default function ActiveWorkoutScreen() {
         },
       },
     ]);
-  };
+  }, [completedSetCount, exerciseLogs, navigation, refreshProfile, workoutId]);
 
   if (loading) {
     return (
@@ -276,6 +349,8 @@ export default function ActiveWorkoutScreen() {
     );
   }
 
+  const exerciseTemplates = (workout.exercises ?? []) as WorkoutExercise[];
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -284,12 +359,21 @@ export default function ActiveWorkoutScreen() {
       <View style={styles.timerBar}>
         <View style={styles.timerLeft}>
           <Ionicons name="time-outline" size={20} color="#667eea" />
-          <Text style={styles.timerText}>{formatElapsed(elapsedSeconds)}</Text>
+          <ElapsedTimer startTimeRef={startTimeRef} />
         </View>
         <Text style={styles.timerMeta}>
           {completedSetCount}/{totalSetCount} sets done
         </Text>
       </View>
+
+      {restoredFromCrash ? (
+        <View style={styles.restoreBanner}>
+          <Ionicons name="information-circle" size={16} color="#667eea" />
+          <Text style={styles.restoreBannerText}>
+            Restored your session from where you left off.
+          </Text>
+        </View>
+      ) : null}
 
       <ScrollView
         style={styles.scroll}
@@ -308,38 +392,15 @@ export default function ActiveWorkoutScreen() {
           </View>
         </View>
 
-        {exerciseLogs.map((exercise, exerciseIndex) => {
-          const template = (workout.exercises ?? [])[exerciseIndex] as
-            | WorkoutExercise
-            | undefined;
-          return (
-            <View key={`${exercise.name}-${exerciseIndex}`} style={styles.exerciseCard}>
-              <View style={styles.exerciseHeader}>
-                <Text style={styles.exerciseName}>{exercise.name}</Text>
-                {template?.reps ? (
-                  <Text style={styles.exerciseTarget}>Target: {template.reps} reps</Text>
-                ) : null}
-              </View>
-              {exercise.sets.map((setLog) => (
-                <SetRow
-                  key={`${exerciseIndex}-${setLog.setIndex}`}
-                  setLog={setLog}
-                  onChangeWeight={(value) =>
-                    updateSet(exerciseIndex, setLog.setIndex, { weight: value })
-                  }
-                  onChangeReps={(value) =>
-                    updateSet(exerciseIndex, setLog.setIndex, { reps: value })
-                  }
-                  onToggleCompleted={() =>
-                    updateSet(exerciseIndex, setLog.setIndex, {
-                      completed: !setLog.completed,
-                    })
-                  }
-                />
-              ))}
-            </View>
-          );
-        })}
+        {exerciseLogs.map((exercise, exerciseIndex) => (
+          <ExerciseCard
+            key={`${exercise.name}-${exerciseIndex}`}
+            exercise={exercise}
+            exerciseIndex={exerciseIndex}
+            template={exerciseTemplates[exerciseIndex]}
+            onChange={updateSet}
+          />
+        ))}
       </ScrollView>
 
       <View style={styles.footer}>
@@ -416,6 +477,19 @@ const styles = StyleSheet.create({
   timerMeta: {
     fontSize: 13,
     color: '#888',
+    fontWeight: '600',
+  },
+  restoreBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#eef0fc',
+  },
+  restoreBannerText: {
+    fontSize: 12,
+    color: '#3949ab',
     fontWeight: '600',
   },
   scroll: {
