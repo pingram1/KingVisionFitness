@@ -80,12 +80,14 @@ router.post('/register', [
     const refreshToken = user.generateRefreshToken();
     await user.save();
 
-    // Send verification email
-    const verificationUrl = `${process.env.APP_URL}/verify-email?token=${emailVerificationToken}`;
-    await sendEmail({
-      to: email,
-      subject: 'Welcome to KingVision Fitness - Verify Your Email',
-      html: `
+    // Send verification email (do not fail registration if SMTP/SendGrid is misconfigured in dev)
+    const verificationUrl = `${process.env.APP_URL || 'http://localhost:5001'}/verify-email?token=${emailVerificationToken}`;
+    let verificationEmailSent = true;
+    try {
+      await sendEmail({
+        to: email,
+        subject: 'Welcome to KingVision Fitness - Verify Your Email',
+        html: `
         <h1>Welcome to KingVision Fitness!</h1>
         <p>Hi ${firstName},</p>
         <p>Thank you for joining KingVision Fitness. Please verify your email address to get started.</p>
@@ -94,15 +96,22 @@ router.post('/register', [
         <p>This link will expire in 24 hours.</p>
         <p>Best regards,<br>The KingVision Fitness Team</p>
       `
-    });
+      });
+    } catch (emailErr) {
+      verificationEmailSent = false;
+      console.error('Registration: verification email failed (user was still created):', emailErr);
+    }
 
     res.status(201).json({
       success: true,
-      message: 'Registration successful! Please check your email to verify your account.',
+      message: verificationEmailSent
+        ? 'Registration successful! Please check your email to verify your account.'
+        : 'Registration successful! Verification email could not be sent — check server email config (SMTP / SendGrid).',
       data: {
         user,
         token,
-        refreshToken
+        refreshToken,
+        verificationEmailSent
       }
     });
   } catch (error: any) {

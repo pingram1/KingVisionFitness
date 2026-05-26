@@ -16,8 +16,14 @@ import groupRoutes from './routes/group.routes';
 import messageRoutes from './routes/message.routes';
 import subscriptionRoutes from './routes/subscription.routes';
 import scheduleRoutes from './routes/schedule.routes';
+import recommendationRoutes from './routes/recommendation.routes';
+import billingRoutes from './routes/billing.routes';
 import './models/Bubble';
 import './models/Group';
+import './models/MealPlan';
+import './models/Booking';
+import './models/Availability';
+import { registerCoachInPocketSockets } from './sockets/coachInPocket.stub';
 
 // Load environment variables (after imports; model files only register schemas)
 dotenv.config();
@@ -33,6 +39,7 @@ const io = new Server(httpServer, {
     credentials: true
   }
 });
+registerCoachInPocketSockets(io);
 
 // Middleware
 app.use(helmet());
@@ -63,6 +70,8 @@ app.use('/api/groups', groupRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/schedule', scheduleRoutes);
+app.use('/api/recommendations', recommendationRoutes);
+app.use('/api/billing', billingRoutes);
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {

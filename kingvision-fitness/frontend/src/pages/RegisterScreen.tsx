@@ -14,6 +14,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { BrandLogo } from '../components/BrandLogo';
 
 export default function RegisterScreen() {
   const navigation = useNavigation();
@@ -105,8 +106,13 @@ export default function RegisterScreen() {
         'Account created! Please check your email to verify your account.',
         [{ text: 'OK' }]
       );
-    } catch (error: any) {
-      Alert.alert('Registration Failed', error.message || 'Could not create account. Please try again.');
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Could not create account. Please try again.';
+      if (__DEV__) {
+        // eslint-disable-next-line no-console -- registration debug trace
+        console.log('[RegisterScreen] Registration error:', msg, error);
+      }
+      Alert.alert('Registration Failed', msg);
     } finally {
       setLoading(false);
     }
@@ -123,7 +129,7 @@ export default function RegisterScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={styles.logo}>💪</Text>
+          <BrandLogo style={styles.heroLogo} />
           <Text style={styles.title}>Create Account</Text>
           <Text style={styles.subtitle}>Join KingVision Fitness today</Text>
         </View>
@@ -262,9 +268,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 32,
   },
-  logo: {
-    fontSize: 64,
-    marginBottom: 16,
+  heroLogo: {
+    width: 160,
+    height: 160,
+    marginBottom: 8,
   },
   title: {
     fontSize: 28,

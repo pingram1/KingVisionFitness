@@ -8,8 +8,9 @@ module.exports = {
   testMatch: [
     '<rootDir>/src/__tests__/node-smoke/**/*.test.js',
     '<rootDir>/src/**/*.flow.test.ts',
+    '<rootDir>/src/**/*.jest.test.ts',
   ],
-  setupFilesAfterEnv: ['<rootDir>/src/__tests__/setup.ts'],
+  setupFilesAfterEnv: ['<rootDir>/src/__tests__/jest.setup.ts'],
   transform: {
     '^.+\\.(ts|tsx)$': 'babel-jest',
   },

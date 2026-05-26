@@ -1,11 +1,13 @@
 import jwt from 'jsonwebtoken';
-import User, { IUser } from '../models/User';
+import User, { IUser, UserRole } from '../models/User';
 import { Request, Response, NextFunction } from 'express';
 
 // Properly type the User interface
 interface IUserDocument {
   _id: any;
   email: string;
+  role: UserRole;
+  subscriptionTier?: string;
   subscription: {
     tier: string;
     status: string;
@@ -71,6 +73,39 @@ export const auth = async (req: Request, res: Response, next: NextFunction) => {
   }
 };
 
+/**
+ * Role-Based Access Control guard.
+ *
+ * MUST be chained AFTER `auth` (or any middleware that populates `req.user`).
+ * Returns 401 if the request is unauthenticated, and 403 if the authenticated
+ * user's role is not in the permitted set.
+ *
+ * @example
+ *   router.get('/admin/users', auth, authorizeRoles('SUPER_ADMIN'), handler);
+ *   router.post('/coach/plan',  auth, authorizeRoles('SUPER_ADMIN', 'TRAINER'), handler);
+ */
+export const authorizeRoles = (...roles: UserRole[]) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    const userRole = req.user.role;
+
+    if (!userRole || !roles.includes(userRole)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: insufficient role privileges',
+      });
+    }
+
+    return next();
+  };
+};
+
 // Check if user is an active client (premium tier)
 export const requireActiveClient = async (
   req: Request,
@@ -85,14 +120,24 @@ export const requireActiveClient = async (
       });
     }
 
-    if (req.user.subscription.tier !== 'active-client') {
+    const productTier = req.user.subscriptionTier ?? 'BASIC';
+    const legacyTier = req.user.subscription?.tier;
+
+    const isActiveClient =
+      productTier === 'ACTIVE_CLIENT' || legacyTier === 'active-client';
+
+    if (!isActiveClient) {
       return res.status(403).json({
         success: false,
         message: 'This feature requires an Active Client subscription'
       });
     }
 
-    if (req.user.subscription.status !== 'active') {
+    if (
+      req.user.subscription?.status &&
+      req.user.subscription.status !== 'active' &&
+      productTier !== 'ACTIVE_CLIENT'
+    ) {
       return res.status(403).json({
         success: false,
         message: 'Your subscription is not active'
@@ -106,6 +151,28 @@ export const requireActiveClient = async (
       message: 'Error checking subscription status'
     });
   }
+};
+
+/** Strict product-tier gate — checks `subscriptionTier` only. */
+export const requireSubscriptionTier = (...tiers: string[]) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    const userTier = req.user.subscriptionTier ?? 'BASIC';
+    if (!tiers.includes(userTier)) {
+      return res.status(403).json({
+        success: false,
+        message: `This feature requires subscription tier: ${tiers.join(' or ')}`,
+      });
+    }
+
+    return next();
+  };
 };
 
 // Check if user is a trainer
@@ -138,38 +205,9 @@ export const requireTrainer = async (
   }
 };
 
-// Check if user is admin (you as the main trainer)
-export const requireAdmin = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required'
-      });
-    }
-
-    // Check if user is the main admin (you can set this via environment variable)
-    const adminEmails = (process.env.ADMIN_EMAILS || '').split(',');
-    
-    if (!adminEmails.includes(req.user.email)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Admin access required'
-      });
-    }
-
-    next();
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error checking admin status'
-    });
-  }
-};
+// NOTE: Legacy `requireAdmin` + `ADMIN_EMAILS` env logic were removed in favor
+// of the role-based guard. To protect an admin-only route, use:
+//   router.get('/admin/...', auth, authorizeRoles('SUPER_ADMIN'), handler);
 
 // Optional authentication - doesn't fail if no token
 export const optionalAuth = async (
@@ -376,7 +414,7 @@ export const requireGroupAdmin = async (
     if (!group.isAdmin(req.user._id.toString())) {
       return res.status(403).json({
         success: false,
-        message: 'Admin privileges required for this action'
+        message: 'Coach privileges required for this action'
       });
     }
 

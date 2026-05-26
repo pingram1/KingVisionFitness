@@ -33,14 +33,23 @@ export default {
       favicon: "./assets/favicon.png"
     },
     plugins: [
+      "expo-font",
       "expo-secure-store",
       "expo-camera",
       "expo-image-picker",
+      "@react-native-community/datetimepicker",
       [
         "expo-notifications",
         {
           icon: "./assets/notification-icon.png",
           color: "#ffffff"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          locationWhenInUsePermission:
+            "Allow KingVision Fitness to use your location for community group check-ins."
         }
       ]
     ],
@@ -51,11 +60,11 @@ export default {
           process.env.EXPO_PUBLIC_EAS_PROJECT_ID ||
           "your-project-id"
       },
-      // API URL - Using your local IP address for device testing
-      // For physical devices, use your computer's IP (found: 192.168.1.73)
-      // For simulator/emulator, you can use localhost
-      // Note: Using port 5001 to avoid conflict with macOS AirPlay Receiver on port 5000
-      apiUrl: process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.73:5001/api'
+      // Physical device: MUST use Mac LAN IP — not localhost. Override any time without editing this file:
+      // EXPO_PUBLIC_API_URL=http://192.168.x.x:5001/api npx expo start
+      apiUrl:
+        process.env.EXPO_PUBLIC_API_URL ||
+        'http://localhost:5001/api'
     }
   }
 };

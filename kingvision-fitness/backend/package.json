@@ -6,6 +6,9 @@
     "dev": "nodemon --config nodemon.json src/server.ts",
     "dev:quick": "node start-dev.js",
     "build": "tsc",
+    "seed": "ts-node --transpile-only scripts/seed.ts",
+    "migrate:tiers": "ts-node --transpile-only scripts/migrateTiers.ts",
+    "promote": "ts-node --transpile-only scripts/promoteUser.ts",
     "test": "node scripts/smoke-tests.mjs && jest --ci --runInBand --forceExit --watchAll=false",
     "lint": "eslint . --ext .ts"
   },
@@ -29,6 +32,7 @@
     "cors": "^2.8.5",
     "date-fns": "^3.0.6",
     "dotenv": "^16.3.1",
+    "expo-server-sdk": "^6.1.0",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
     "express-validator": "^7.0.1",
@@ -38,6 +42,7 @@
     "mongoose": "^8.0.3",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
+    "nanoid": "^3.3.11",
     "nodemailer": "^6.9.7",
     "socket.io": "^4.6.0",
     "stripe": "^14.10.0"

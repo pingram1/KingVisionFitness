@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,191 +7,97 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
-  Alert,
   TextInput,
   FlatList,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { Ionicons } from '@expo/vector-icons';
-
-interface Workout {
-  _id: string;
-  title: string;
-  description: string;
-  type: 'strength' | 'cardio' | 'hiit' | 'flexibility' | 'functional' | 'mixed';
-  difficulty: 'beginner' | 'intermediate' | 'advanced';
-  duration: number;
-  exercises: any[];
-  targetMuscleGroups: string[];
-  equipment: string[];
-  location: 'gym' | 'home' | 'outdoor' | 'any';
-  calories?: number;
-  thumbnailUrl?: string;
-  isPublic: boolean;
-  isCustom: boolean;
-  weekNumber?: number;
-  dayOfWeek?: number;
-  completionCount: number;
-  averageRating: number;
-}
+import type { Workout } from '../types/workout';
+import type { WorkoutsStackParamList } from '../navigation/WorkoutsNavigator';
 
 type FilterType = 'all' | 'strength' | 'cardio' | 'hiit' | 'flexibility' | 'functional' | 'mixed';
 type DifficultyFilter = 'all' | 'beginner' | 'intermediate' | 'advanced';
+type WorkoutsNav = NativeStackNavigationProp<WorkoutsStackParamList, 'WorkoutsList'>;
 
 export default function WorkoutsScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<WorkoutsNav>();
   const { user } = useAuth();
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [filteredWorkouts, setFilteredWorkouts] = useState<Workout[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<FilterType>('all');
   const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>('all');
   const [activeTab, setActiveTab] = useState<'weekly' | 'custom'>('weekly');
 
-  useEffect(() => {
-    loadWorkouts();
-  }, [activeTab]);
+  const isActiveClient = user?.subscription?.tier === 'active-client';
 
-  useEffect(() => {
-    filterWorkouts();
-  }, [workouts, searchQuery, typeFilter, difficultyFilter]);
+  const loadWorkouts = useCallback(
+    async (showFullScreenLoader = true) => {
+      try {
+        setLoadError(null);
+        if (showFullScreenLoader) setLoading(true);
 
-  const loadWorkouts = async () => {
-    try {
-      setLoading(true);
-      // TODO: Replace with actual API endpoint when backend is ready
-      // if (activeTab === 'weekly') {
-      //   const response = await api.get('/workouts/weekly');
-      //   setWorkouts(response.data.data);
-      // } else {
-      //   const response = await api.get('/workouts/custom');
-      //   setWorkouts(response.data.data);
-      // }
+        const tab = isActiveClient ? activeTab : 'weekly';
 
-      // Mock data for now
-      const mockWorkouts: Workout[] = [
-        {
-          _id: '1',
-          title: 'Full Body Strength',
-          description: 'A comprehensive full-body workout targeting all major muscle groups',
-          type: 'strength',
-          difficulty: 'intermediate',
-          duration: 45,
-          exercises: [],
-          targetMuscleGroups: ['full_body'],
-          equipment: ['dumbbell', 'barbell'],
-          location: 'gym',
-          calories: 350,
-          isPublic: true,
-          isCustom: false,
-          weekNumber: 1,
-          dayOfWeek: 1,
-          completionCount: 125,
-          averageRating: 4.5,
-        },
-        {
-          _id: '2',
-          title: 'HIIT Cardio Blast',
-          description: 'High-intensity interval training to boost your metabolism',
-          type: 'hiit',
-          difficulty: 'advanced',
-          duration: 30,
-          exercises: [],
-          targetMuscleGroups: ['full_body'],
-          equipment: ['bodyweight'],
-          location: 'any',
-          calories: 400,
-          isPublic: true,
-          isCustom: false,
-          weekNumber: 1,
-          dayOfWeek: 2,
-          completionCount: 89,
-          averageRating: 4.7,
-        },
-        {
-          _id: '3',
-          title: 'Yoga Flow',
-          description: 'Gentle yoga flow for flexibility and relaxation',
-          type: 'flexibility',
-          difficulty: 'beginner',
-          duration: 25,
-          exercises: [],
-          targetMuscleGroups: ['full_body'],
-          equipment: ['none'],
-          location: 'home',
-          calories: 120,
-          isPublic: true,
-          isCustom: false,
-          weekNumber: 1,
-          dayOfWeek: 3,
-          completionCount: 203,
-          averageRating: 4.8,
-        },
-      ];
-
-      // Add custom workouts if user is active client
-      if (user?.subscription?.tier === 'active-client') {
-        mockWorkouts.push({
-          _id: '4',
-          title: 'Custom Upper Body',
-          description: 'Personalized upper body workout designed for you',
-          type: 'strength',
-          difficulty: 'intermediate',
-          duration: 50,
-          exercises: [],
-          targetMuscleGroups: ['chest', 'back', 'shoulders', 'biceps', 'triceps'],
-          equipment: ['dumbbell'],
-          location: 'gym',
-          calories: 380,
-          isPublic: false,
-          isCustom: true,
-          completionCount: 5,
-          averageRating: 5.0,
-        });
+        if (tab === 'custom') {
+          const response = await api.get<{ success: boolean; data: Workout[] }>('/workouts/custom');
+          setWorkouts(response.data.data ?? []);
+        } else {
+          const response = await api.get<{ success: boolean; data: Workout[] }>(
+            '/workouts/weekly'
+          );
+          setWorkouts(response.data.data ?? []);
+        }
+      } catch (error) {
+        console.error('Error loading workouts:', error);
+        setLoadError('Failed to load workouts. Pull to refresh or try again.');
+      } finally {
+        setLoading(false);
       }
+    },
+    [activeTab, isActiveClient]
+  );
 
-      setWorkouts(mockWorkouts);
-    } catch (error) {
-      console.error('Error loading workouts:', error);
-      Alert.alert('Error', 'Failed to load workouts');
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    loadWorkouts(true);
+  }, [loadWorkouts]);
 
-  const filterWorkouts = () => {
+  useEffect(() => {
     let filtered = [...workouts];
 
-    // Search filter
     if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
         (workout) =>
-          workout.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          workout.description.toLowerCase().includes(searchQuery.toLowerCase())
+          workout.title.toLowerCase().includes(query) ||
+          (workout.description ?? '').toLowerCase().includes(query)
       );
     }
 
-    // Type filter
     if (typeFilter !== 'all') {
       filtered = filtered.filter((workout) => workout.type === typeFilter);
     }
 
-    // Difficulty filter
     if (difficultyFilter !== 'all') {
       filtered = filtered.filter((workout) => workout.difficulty === difficultyFilter);
     }
 
     setFilteredWorkouts(filtered);
-  };
+  }, [workouts, searchQuery, typeFilter, difficultyFilter]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadWorkouts();
-    setRefreshing(false);
+    try {
+      await loadWorkouts(false);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const getTypeIcon = (type: string) => {
@@ -241,27 +147,31 @@ export default function WorkoutsScreen() {
     }
   };
 
+  const hasActiveFilters =
+    searchQuery.trim().length > 0 || typeFilter !== 'all' || difficultyFilter !== 'all';
+
+  const emptyMessage = () => {
+    if (hasActiveFilters) return 'No workouts match your filters';
+    if (activeTab === 'custom') return 'No custom workouts assigned to you yet';
+    return 'No workouts available yet';
+  };
+
+  const startWorkout = (item: Workout) => {
+    navigation.navigate('ActiveWorkout', {
+      workoutId: item._id,
+      workoutTitle: item.title,
+    });
+  };
+
   const renderWorkoutCard = ({ item }: { item: Workout }) => (
     <TouchableOpacity
       style={styles.workoutCard}
-      onPress={() => {
-        // TODO: Navigate to workout detail screen
-        Alert.alert('Workout', `Starting: ${item.title}`);
-      }}
+      onPress={() => startWorkout(item)}
       activeOpacity={0.7}
     >
-      {item.thumbnailUrl ? (
-        <View style={styles.thumbnailContainer}>
-          {/* Image would go here */}
-          <View style={[styles.thumbnailPlaceholder, { backgroundColor: getTypeColor(item.type) + '20' }]}>
-            <Ionicons name={getTypeIcon(item.type) as any} size={32} color={getTypeColor(item.type)} />
-          </View>
-        </View>
-      ) : (
-        <View style={[styles.thumbnailPlaceholder, { backgroundColor: getTypeColor(item.type) + '20' }]}>
-          <Ionicons name={getTypeIcon(item.type) as any} size={32} color={getTypeColor(item.type)} />
-        </View>
-      )}
+      <View style={[styles.thumbnailPlaceholder, { backgroundColor: getTypeColor(item.type) + '20' }]}>
+        <Ionicons name={getTypeIcon(item.type) as keyof typeof Ionicons.glyphMap} size={32} color={getTypeColor(item.type)} />
+      </View>
 
       <View style={styles.workoutCardContent}>
         <View style={styles.workoutHeader}>
@@ -281,7 +191,7 @@ export default function WorkoutsScreen() {
         </View>
 
         <Text style={styles.workoutDescription} numberOfLines={2}>
-          {item.description}
+          {item.description || 'No description available.'}
         </Text>
 
         <View style={styles.workoutMeta}>
@@ -289,25 +199,27 @@ export default function WorkoutsScreen() {
             <Ionicons name="time-outline" size={16} color="#666" />
             <Text style={styles.metaText}>{item.duration} min</Text>
           </View>
-          {item.calories && (
+          {typeof item.calories === 'number' && item.calories > 0 && (
             <View style={styles.metaItem}>
               <Ionicons name="flame-outline" size={16} color="#666" />
               <Text style={styles.metaText}>~{item.calories} cal</Text>
             </View>
           )}
-          <View style={styles.metaItem}>
-            <Ionicons name="location-outline" size={16} color="#666" />
-            <Text style={styles.metaText}>{item.location}</Text>
-          </View>
+          {item.location && (
+            <View style={styles.metaItem}>
+              <Ionicons name="location-outline" size={16} color="#666" />
+              <Text style={styles.metaText}>{item.location}</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.workoutFooter}>
           <View style={styles.ratingContainer}>
             <Ionicons name="star" size={14} color="#FFD700" />
-            <Text style={styles.ratingText}>{item.averageRating.toFixed(1)}</Text>
-            <Text style={styles.completionText}>({item.completionCount} completed)</Text>
+            <Text style={styles.ratingText}>{(item.averageRating ?? 0).toFixed(1)}</Text>
+            <Text style={styles.completionText}>({item.completionCount ?? 0} completed)</Text>
           </View>
-          <TouchableOpacity style={styles.startButton}>
+          <TouchableOpacity style={styles.startButton} onPress={() => startWorkout(item)}>
             <Text style={styles.startButtonText}>Start</Text>
             <Ionicons name="arrow-forward" size={16} color="#fff" />
           </TouchableOpacity>
@@ -316,17 +228,29 @@ export default function WorkoutsScreen() {
     </TouchableOpacity>
   );
 
-  if (loading && workouts.length === 0) {
+  if (loading && workouts.length === 0 && !loadError) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#667eea" />
+        <Text style={styles.loadingText}>Loading workouts…</Text>
+      </View>
+    );
+  }
+
+  if (loadError && workouts.length === 0) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Ionicons name="cloud-offline-outline" size={48} color="#999" />
+        <Text style={styles.errorText}>{loadError}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => loadWorkouts(true)}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      {/* Search Bar */}
       <View style={styles.searchContainer}>
         <Ionicons name="search-outline" size={20} color="#999" style={styles.searchIcon} />
         <TextInput
@@ -343,8 +267,7 @@ export default function WorkoutsScreen() {
         )}
       </View>
 
-      {/* Tabs */}
-      {user?.subscription?.tier === 'active-client' && (
+      {isActiveClient && (
         <View style={styles.tabContainer}>
           <TouchableOpacity
             style={[styles.tab, activeTab === 'weekly' && styles.activeTab]}
@@ -365,7 +288,6 @@ export default function WorkoutsScreen() {
         </View>
       )}
 
-      {/* Filters */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -404,7 +326,6 @@ export default function WorkoutsScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Difficulty Filter */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -439,7 +360,6 @@ export default function WorkoutsScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Workouts List */}
       {filteredWorkouts.length > 0 ? (
         <FlatList
           data={filteredWorkouts}
@@ -456,12 +376,18 @@ export default function WorkoutsScreen() {
         >
           <View style={styles.emptyState}>
             <Ionicons name="fitness-outline" size={64} color="#ccc" />
-            <Text style={styles.emptyStateText}>
-              {searchQuery || typeFilter !== 'all' || difficultyFilter !== 'all'
-                ? 'No workouts match your filters'
-                : 'No workouts available'}
-            </Text>
-            {(searchQuery || typeFilter !== 'all' || difficultyFilter !== 'all') && (
+            <Text style={styles.emptyStateText}>{emptyMessage()}</Text>
+            {!hasActiveFilters && activeTab === 'weekly' && (
+              <Text style={styles.emptyStateSubtext}>
+                Check back soon — new workouts are added each week.
+              </Text>
+            )}
+            {!hasActiveFilters && activeTab === 'custom' && (
+              <Text style={styles.emptyStateSubtext}>
+                Your trainer will assign personalized workouts here.
+              </Text>
+            )}
+            {hasActiveFilters && (
               <TouchableOpacity
                 style={styles.clearFiltersButton}
                 onPress={() => {
@@ -490,6 +416,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#fff',
+    padding: 24,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#666',
+  },
+  errorText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 16,
+    backgroundColor: '#667eea',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontWeight: '600',
   },
   searchContainer: {
     flexDirection: 'row',
@@ -538,23 +487,28 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   filtersContainer: {
+    maxHeight: 44,
     marginBottom: 8,
   },
   difficultyFiltersContainer: {
+    maxHeight: 44,
     marginBottom: 16,
   },
   filtersContent: {
     paddingHorizontal: 16,
-    gap: 8,
+    alignItems: 'center',
+    flexDirection: 'row',
   },
   filterChip: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#e0e0e0',
     marginRight: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   activeFilterChip: {
     backgroundColor: '#667eea',
@@ -562,8 +516,10 @@ const styles = StyleSheet.create({
   },
   filterText: {
     fontSize: 14,
+    lineHeight: 18,
     color: '#666',
     fontWeight: '500',
+    textAlign: 'center',
   },
   activeFilterText: {
     color: '#fff',
@@ -582,10 +538,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
-  },
-  thumbnailContainer: {
-    width: '100%',
-    height: 180,
   },
   thumbnailPlaceholder: {
     width: '100%',
@@ -700,11 +652,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 60,
+    paddingHorizontal: 32,
   },
   emptyStateText: {
     fontSize: 16,
-    color: '#999',
+    fontWeight: '600',
+    color: '#666',
     marginTop: 16,
+    textAlign: 'center',
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8,
     textAlign: 'center',
   },
   clearFiltersButton: {
@@ -720,5 +680,3 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
-
-

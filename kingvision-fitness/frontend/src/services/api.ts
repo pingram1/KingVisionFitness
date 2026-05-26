@@ -2,10 +2,11 @@ import axios from 'axios';
 import Constants from 'expo-constants';
 import { authTokenStorage } from '../storage/authTokenStorage';
 
-// Get API URL from environment or use default
-const API_URL = Constants.expoConfig?.extra?.apiUrl || 
-               process.env.EXPO_PUBLIC_API_URL || 
-               'http://localhost:5001/api';
+// Prefer EXPO_PUBLIC_API_URL (.env / shell) over app.config so device dev can swap host without editing app.config.js.
+const API_URL =
+  process.env.EXPO_PUBLIC_API_URL ||
+  Constants.expoConfig?.extra?.apiUrl ||
+  'http://localhost:5001/api';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -13,6 +14,12 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+if (__DEV__) {
+  // Visible in Metro (`npx expo start`) — confirms device can target the right machine:port
+  // eslint-disable-next-line no-console -- intentional dev diagnostic
+  console.log('[api] baseURL =', API_URL);
+}
 
 // Add token to requests
 api.interceptors.request.use(async (config) => {
@@ -27,10 +34,22 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
-// Handle token expiration
+// Handle token expiration + dev logging for failed requests (status + body)
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
+    if (__DEV__ && error.response) {
+      const { status, statusText, data } = error.response;
+      // eslint-disable-next-line no-console -- intentional dev diagnostic
+      console.warn('[api]', error.config?.method?.toUpperCase(), error.config?.url, '→', status, statusText, data);
+    }
+    if (__DEV__ && error.request && !error.response) {
+      // eslint-disable-next-line no-console -- intentional dev diagnostic
+      console.warn(
+        '[api] No response from server (wrong host/port, firewall, or device not on LAN). baseURL was',
+        api.defaults.baseURL
+      );
+    }
     if (error.response?.status === 401) {
       try {
         await authTokenStorage.clearTokens();

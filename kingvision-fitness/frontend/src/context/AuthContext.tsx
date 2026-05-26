@@ -1,10 +1,17 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import api from '../services/api';
 import { authTokenStorage } from '../storage/authTokenStorage';
+import type { UserRole } from '../types/user';
 
 interface User {
   _id: string;
   email: string;
+  /**
+   * Platform RBAC role. Drives conditional navigation (e.g. Admin tab) and
+   * any client-side guards. Server is always the source of truth — never trust
+   * this value for actual authorization, only for UX gating.
+   */
+  role: UserRole;
   profile: {
     firstName: string;
     lastName: string;
@@ -14,6 +21,41 @@ interface User {
     tier: string;
     status: string;
   };
+  /** Product tier from profile/login — used for feature gating in the UI. */
+  subscriptionTier?: 'BASIC' | 'SPECIFIED' | 'ACTIVE_CLIENT';
+  /** Present when populated by dashboard/profile APIs */
+  completedWorkouts?: Array<{ duration?: number; [key: string]: unknown }>;
+}
+
+/** Human-readable message from axios errors (validation array, message, or network). */
+function messageFromApiError(error: unknown, fallback: string): string {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const res = (error as { response?: { status?: number; data?: any } }).response;
+    const data = res?.data;
+    if (data?.errors && Array.isArray(data.errors) && data.errors.length > 0) {
+      const first = data.errors[0];
+      if (typeof first === 'object' && first !== null && 'msg' in first) {
+        return String((first as { msg: string }).msg);
+      }
+      return JSON.stringify(data.errors);
+    }
+    if (typeof data?.message === 'string' && data.message) {
+      return data.message;
+    }
+    if (res?.status === 400 || res?.status === 422) {
+      return 'Request was rejected. Check the Expo console for [api] response details.';
+    }
+  }
+  if (error && typeof error === 'object' && 'message' in error) {
+    const m = (error as { message?: string }).message;
+    if (m && !m.startsWith('Request failed with status code')) {
+      return m;
+    }
+  }
+  if (error && typeof error === 'object' && 'request' in error && !('response' in (error as object))) {
+    return 'Cannot reach API. Set EXPO_PUBLIC_API_URL to your Mac LAN IP (same Wi‑Fi), e.g. http://192.168.1.x:5001/api — see Metro log [api] baseURL.';
+  }
+  return fallback;
 }
 
 interface AuthContextType {
@@ -22,6 +64,14 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   register: (data: any) => Promise<void>;
   logout: () => Promise<void>;
+  /**
+   * Re-fetches `/users/profile` and replaces `user` in context. Call after
+   * any backend mutation that changes role / subscriptionTier / profile fields
+   * (e.g. billing dev-upgrade, Stripe checkout success) so every screen
+   * deriving from `user.*` re-renders with the new values.
+   */
+  refreshProfile: () => Promise<User | null>;
+  /** @deprecated kept for back-compat; use `refreshProfile` instead. */
   refreshUser: () => Promise<void>;
 }
 
@@ -74,8 +124,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await authTokenStorage.setTokens(token, refreshToken);
       
       setUser(userData);
-    } catch (error: any) {
-      throw new Error(error.response?.data?.message || 'Login failed');
+    } catch (error: unknown) {
+      throw new Error(messageFromApiError(error, 'Login failed'));
     }
   };
 
@@ -87,8 +137,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await authTokenStorage.setTokens(token, refreshToken);
       
       setUser(userData);
-    } catch (error: any) {
-      throw new Error(error.response?.data?.message || 'Registration failed');
+    } catch (error: unknown) {
+      throw new Error(messageFromApiError(error, 'Registration failed'));
     }
   };
 
@@ -115,17 +165,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const refreshUser = async () => {
+  const refreshProfile = async (): Promise<User | null> => {
     try {
       const response = await api.get('/users/profile');
-      setUser(response.data.data);
+      const fresh: User = response.data.data;
+      setUser(fresh);
+      return fresh;
     } catch (error) {
       console.error('Error refreshing user data:', error);
+      return null;
     }
   };
 
+  const refreshUser = async () => {
+    await refreshProfile();
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser }}>
+    <AuthContext.Provider
+      value={{ user, loading, login, register, logout, refreshProfile, refreshUser }}
+    >
       {children}
     </AuthContext.Provider>
   );

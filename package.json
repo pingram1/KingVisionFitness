@@ -1,0 +1,27 @@
+{
+  "name": "kingvision-fitness",
+  "version": "1.0.0",
+  "description": "KingVision Fitness - Mobile fitness coaching application",
+  "engines": {
+    "node": ">=20 <23"
+  },
+  "scripts": {
+    "start": "./start-dev.sh",
+    "stop": "./stop-dev.sh",
+    "start:backend": "cd kingvision-fitness/backend && npm run dev",
+    "start:frontend": "cd kingvision-fitness/frontend && npm start",
+    "stop:backend": "lsof -ti :5001 | xargs kill -9 2>/dev/null || true",
+    "stop:frontend": "lsof -ti :8081 | xargs kill -9 2>/dev/null || true",
+    "install:all": "npm run install:backend && npm run install:frontend",
+    "install:backend": "cd kingvision-fitness/backend && npm install",
+    "install:frontend": "cd kingvision-fitness/frontend && npm install"
+  },
+  "keywords": [
+    "fitness",
+    "mobile",
+    "react-native",
+    "expo"
+  ],
+  "author": "KingVision Fitness",
+  "license": "ISC"
+}

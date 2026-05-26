@@ -16,6 +16,21 @@ export interface IExercise {
   alternatives?: string[];
 }
 
+// Workout meta-tags for retrieval / cosine features (indexed for recommenders)
+export interface IWorkoutMetaTags {
+  /** 1–10 perceived exertion scaffold */
+  intensity: number;
+  /** Normalized approximate tonnage complexity */
+  volumeLoadIndex: number;
+  /** 1–10 cardiovascular stress */
+  cardiovascularStress: number;
+  /** 1–10 recovery debt */
+  recoveryDemand: number;
+  /** 1–10 coordination / technique load */
+  skillComplexity?: number;
+  mobilityDemand?: number;
+}
+
 // Workout interface
 export interface IWorkout extends Document {
   title: string;
@@ -38,6 +53,7 @@ export interface IWorkout extends Document {
   location: 'gym' | 'home' | 'outdoor' | 'any';
   calories?: number; // Estimated calories burned
   targetMuscleGroups: string[];
+  metaTags: IWorkoutMetaTags;
   instructions?: string; // General workout instructions
   videoUrl?: string; // Full workout video if available
   thumbnailUrl?: string;
@@ -102,6 +118,18 @@ const exerciseSchema = new Schema<IExercise>({
   },
   alternatives: [String]
 }, { _id: false });
+
+const workoutMetaTagsSchema = new Schema<IWorkoutMetaTags>(
+  {
+    intensity: { type: Number, default: 5, min: 1, max: 10 },
+    volumeLoadIndex: { type: Number, default: 0.5, min: 0, max: 1 },
+    cardiovascularStress: { type: Number, default: 5, min: 1, max: 10 },
+    recoveryDemand: { type: Number, default: 5, min: 1, max: 10 },
+    skillComplexity: { type: Number, default: 5, min: 1, max: 10 },
+    mobilityDemand: { type: Number, default: 5, min: 1, max: 10 },
+  },
+  { _id: false }
+);
 
 // Workout Schema
 const workoutSchema = new Schema<IWorkout>(
@@ -202,6 +230,7 @@ const workoutSchema = new Schema<IWorkout>(
         'lower_back', 'traps', 'lats', 'full_body'
       ]
     }],
+    metaTags: { type: workoutMetaTagsSchema, default: () => ({}) },
     instructions: {
       type: String,
       maxlength: [2000, 'Instructions cannot exceed 2000 characters']
@@ -260,7 +289,8 @@ workoutSchema.index({ isPublic: 1, weekNumber: 1, dayOfWeek: 1 });
 workoutSchema.index({ type: 1, difficulty: 1 });
 workoutSchema.index({ tags: 1 });
 workoutSchema.index({ targetMuscleGroups: 1 });
-workoutSchema.index({ createdAt: -1 });
+workoutSchema.index({ 'metaTags.intensity': 1, difficulty: 1 });
+workoutSchema.index({ 'metaTags.recoveryDemand': 1 });
 
 // Virtual for total exercise count
 workoutSchema.virtual('totalExercises').get(function() {
