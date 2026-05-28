@@ -235,11 +235,17 @@ export default function ActiveWorkoutScreen() {
               `Great work — ${Math.max(1, Math.round(elapsedSeconds / 60))} minutes logged.`
             );
           } catch (err: unknown) {
-            const message =
+            let message: string | undefined;
+            if (
               err &&
               typeof err === 'object' &&
-              'response' in err &&
-              (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+              'response' in err
+            ) {
+              const data = (err as { response?: { data?: { message?: string } } }).response?.data;
+              if (data && typeof data.message === 'string') {
+                message = data.message;
+              }
+            }
             Alert.alert('Save failed', message ?? 'Could not log your workout. Try again.');
           } finally {
             setSubmitting(false);

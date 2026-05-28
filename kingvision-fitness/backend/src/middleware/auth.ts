@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
-import User, { IUser, UserRole } from '../models/User';
+import User, { UserRole } from '../models/User';
+import Group from '../models/Group';
 import { Request, Response, NextFunction } from 'express';
 import { env } from '../config/env';
 
@@ -346,7 +347,6 @@ export const requireGroupMember = async (
       });
     }
 
-    const Group = require('../models/Group').default;
     const group = await Group.findById(groupId);
 
     if (!group) {
@@ -398,7 +398,6 @@ export const requireGroupAdmin = async (
       });
     }
 
-    const Group = require('../models/Group').default;
     const group = await Group.findById(groupId);
 
     if (!group) {

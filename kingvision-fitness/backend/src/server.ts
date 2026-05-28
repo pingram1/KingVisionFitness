@@ -187,7 +187,7 @@ io.on('connection', (socket) => {
 // ── Error handling ─────────────────────────────────────────────────────────────
 // Production responses NEVER leak internal error messages or stack traces.
 // Use a stable shape and let logs carry the diagnostic detail.
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
   console.error('[error]', req.method, req.originalUrl, err.stack || err.message);
 
   const statusCode = res.statusCode && res.statusCode !== 200 ? res.statusCode : 500;

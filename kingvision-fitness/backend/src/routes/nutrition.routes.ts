@@ -122,7 +122,7 @@ router.post(
         });
       }
 
-      let assignedIds: mongoose.Types.ObjectId[] = [];
+      const assignedIds: mongoose.Types.ObjectId[] = [];
       if (distributionType === 'custom_client') {
         if (!Array.isArray(assignedTo) || assignedTo.length === 0) {
           return res.status(400).json({
