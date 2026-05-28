@@ -64,7 +64,7 @@ async function resolvePlatformTrainerId(): Promise<mongoose.Types.ObjectId | nul
 }
 
 async function fetchTrainerAvailabilityTemplate(trainerId: mongoose.Types.ObjectId) {
-  let slots = await Availability.find({ trainerId }).sort({ dayOfWeek: 1 }).lean();
+  const slots = await Availability.find({ trainerId }).sort({ dayOfWeek: 1 }).lean();
 
   if (slots.length === 0) {
     return defaultWeeklyTemplate();

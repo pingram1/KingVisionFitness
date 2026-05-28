@@ -28,6 +28,7 @@ jobs:
           cache-dependency-path: kingvision-fitness/frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npx tsc --noEmit
       - run: npm test
       - run: npm run test:jest
 
@@ -36,6 +37,21 @@ jobs:
     defaults:
       run:
         working-directory: kingvision-fitness/backend
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval \"db.adminCommand('ping')\""
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      MONGODB_URI: mongodb://localhost:27017/kingvision-ci
+      JWT_SECRET: ci-jwt-secret-minimum-sixteen-characters-long
+      JWT_REFRESH_SECRET: ci-refresh-secret-minimum-sixteen-characters
+      NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -45,4 +61,6 @@ jobs:
           cache-dependency-path: kingvision-fitness/backend/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: npm run build
       - run: npm test
