@@ -26,6 +26,17 @@ export interface AssignedClientSummary {
   };
 }
 
+export type ExerciseTargetType = 'reps' | 'duration';
+
+export type ExerciseEquipment =
+  | 'bodyweight'
+  | 'barbell'
+  | 'dumbbell'
+  | 'machine'
+  | 'cable'
+  | 'kettlebell'
+  | 'none';
+
 export interface WorkoutExercise {
   name: string;
   sets: number;
@@ -63,6 +74,7 @@ export interface Workout {
   completionCount?: number;
   averageRating?: number;
   createdAt?: string;
+  updatedAt?: string;
 }
 
 export type DistributionType = 'weekly_public' | 'custom_client';
@@ -73,7 +85,10 @@ export interface ExerciseDraft {
   id: string;
   name: string;
   sets: string;
-  reps: string;
+  targetType: ExerciseTargetType;
+  /** Reps (e.g. "8-12") when targetType is reps; seconds when duration. */
+  targetValue: string;
+  equipment: ExerciseEquipment;
   restTime: string;
   videoUrl: string;
 }
@@ -83,6 +98,8 @@ export interface WorkoutExerciseInput {
   name: string;
   sets: number;
   reps: string;
+  duration?: number;
+  equipment?: ExerciseEquipment;
   restTime?: string;
   videoUrl?: string;
 }

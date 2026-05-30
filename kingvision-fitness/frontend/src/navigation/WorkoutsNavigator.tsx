@@ -2,7 +2,7 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import WorkoutsScreen from '../pages/WorkoutsScreen';
-import ActiveWorkoutScreen from '../pages/ActiveWorkoutScreen';
+import ActiveWorkoutPlayerScreen from '../pages/ActiveWorkoutPlayerScreen';
 
 export type WorkoutsStackParamList = {
   WorkoutsList: undefined;
@@ -21,7 +21,7 @@ export default function WorkoutsNavigator() {
       />
       <WorkoutsStack.Screen
         name="ActiveWorkout"
-        component={ActiveWorkoutScreen}
+        component={ActiveWorkoutPlayerScreen}
         options={({ route }) => ({
           title: route.params.workoutTitle,
           headerBackTitle: 'Workouts',

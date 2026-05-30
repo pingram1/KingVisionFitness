@@ -10,6 +10,8 @@ import {
   Alert,
   RefreshControl,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import ExerciseBuilder, {
@@ -38,6 +40,15 @@ import type {
   NutritionMeal,
   NutritionPlan,
 } from '../../types/nutrition';
+import {
+  MUSCLE_GROUP_OPTIONS,
+  MUSCLE_GROUP_PRESETS,
+  findInvalidMuscleGroupTokens,
+  resolveTargetMuscleGroups,
+} from '../../constants/muscleGroups';
+import type { AdminContentStackParamList } from '../../navigation/AdminContentNavigator';
+
+type ContentStudioNav = NativeStackNavigationProp<AdminContentStackParamList, 'ContentStudio'>;
 
 type ContentTab = 'workouts' | 'tutoring' | 'nutrition';
 
@@ -158,6 +169,7 @@ function formatNutritionAssignees(plan: NutritionPlan): string {
  * video-first instructional assets.
  */
 export default function AdminContentScreen() {
+  const navigation = useNavigation<ContentStudioNav>();
   const [contentTab, setContentTab] = useState<ContentTab>('workouts');
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [exercises, setExercises] = useState<ExerciseDraft[]>(createDefaultExerciseList);
@@ -356,6 +368,10 @@ export default function AdminContentScreen() {
         return 'Video URL must be a valid URL (https://...).';
       }
     }
+    const invalidMuscleTokens = findInvalidMuscleGroupTokens(form.muscleFocus);
+    if (invalidMuscleTokens.length > 0) {
+      return `Invalid muscle group(s): ${invalidMuscleTokens.join(', ')}. Use presets below or values like chest, back, full_body, upper_body.`;
+    }
     if (contentTab === 'workouts') {
       if (form.distributionType === 'custom_client' && !selectedClientId) {
         return 'Select an Active Client to assign this workout to.';
@@ -372,8 +388,16 @@ export default function AdminContentScreen() {
         if (!Number.isFinite(sets) || sets < 1) {
           return `Exercise ${i + 1}: sets must be at least 1.`;
         }
-        if (!exercise.reps.trim()) {
-          return `Exercise ${i + 1}: reps are required.`;
+        if (!exercise.targetValue.trim()) {
+          return `Exercise ${i + 1}: ${
+            exercise.targetType === 'duration' ? 'target seconds' : 'reps'
+          } are required.`;
+        }
+        if (exercise.targetType === 'duration') {
+          const seconds = parseInt(exercise.targetValue, 10);
+          if (!Number.isFinite(seconds) || seconds < 1 || seconds > 3600) {
+            return `Exercise ${i + 1}: target hold must be 1–3600 seconds.`;
+          }
         }
         if (exercise.videoUrl.trim()) {
           try {
@@ -405,10 +429,7 @@ export default function AdminContentScreen() {
       duration: parseInt(form.duration, 10),
       difficulty: form.difficulty,
       workoutType: form.workoutType,
-      targetMuscleGroups: form.muscleFocus
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
+      targetMuscleGroups: resolveTargetMuscleGroups(form.muscleFocus),
       metaTags: {
         intensity: parseInt(form.intensity, 10) || 5,
         volumeLoadIndex: parseFloat(form.volumeLoadIndex) || 0.5,
@@ -419,13 +440,26 @@ export default function AdminContentScreen() {
       },
       exercises:
         contentTab === 'workouts'
-          ? exercises.map((exercise) => ({
-              name: exercise.name.trim(),
-              sets: parseInt(exercise.sets, 10),
-              reps: exercise.reps.trim(),
-              restTime: exercise.restTime.trim() || '60s',
-              videoUrl: exercise.videoUrl.trim() || undefined,
-            }))
+          ? exercises.map((exercise) => {
+              const base = {
+                name: exercise.name.trim(),
+                sets: parseInt(exercise.sets, 10),
+                restTime: exercise.restTime.trim() || '60s',
+                videoUrl: exercise.videoUrl.trim() || undefined,
+                equipment: exercise.equipment,
+              };
+              if (exercise.targetType === 'duration') {
+                return {
+                  ...base,
+                  reps: '1',
+                  duration: parseInt(exercise.targetValue, 10) || 60,
+                };
+              }
+              return {
+                ...base,
+                reps: exercise.targetValue.trim(),
+              };
+            })
           : undefined,
       assignedTo:
         contentTab === 'workouts' && form.distributionType === 'custom_client' && selectedClientId
@@ -574,6 +608,17 @@ export default function AdminContentScreen() {
             ? 'Content appears in the client Workouts tab for Basic tier users.'
             : 'Instructional video linked for Basic tier tutoring library.'}
         </Text>
+
+        {contentTab === 'workouts' && (
+          <TouchableOpacity
+            style={styles.manageWorkoutsLink}
+            onPress={() => navigation.navigate('AdminWorkouts')}
+          >
+            <Ionicons name="list-outline" size={18} color="#92400e" />
+            <Text style={styles.manageWorkoutsLinkText}>Manage Published Workouts</Text>
+            <Ionicons name="chevron-forward" size={16} color="#92400e" />
+          </TouchableOpacity>
+        )}
 
         <Field label="Title">
           <TextInput
@@ -732,15 +777,32 @@ export default function AdminContentScreen() {
           </Field>
         )}
 
-        <Field label="Muscle focus (comma-separated)">
+        <Field label="Muscle focus">
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={styles.chipRow}>
+              {MUSCLE_GROUP_PRESETS.map((preset) => (
+                <TouchableOpacity
+                  key={preset.label}
+                  style={styles.chip}
+                  onPress={() => patchForm({ muscleFocus: preset.groups.join(', ') })}
+                >
+                  <Text style={styles.chipText}>{preset.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
           <TextInput
-            style={styles.input}
+            style={[styles.input, styles.inputSpacingTop]}
             value={form.muscleFocus}
             onChangeText={(muscleFocus) => patchForm({ muscleFocus })}
-            placeholder="full_body or chest, shoulders"
+            placeholder="full_body or chest, shoulders — upper_body expands automatically"
             placeholderTextColor="#9ca3af"
             autoCapitalize="none"
           />
+          <Text style={styles.fieldHint}>
+            Valid: {MUSCLE_GROUP_OPTIONS.slice(0, 6).join(', ')}… Presets like upper_body map
+            to chest, back, shoulders, etc.
+          </Text>
         </Field>
 
         {contentTab === 'workouts' && (
@@ -853,6 +915,7 @@ export default function AdminContentScreen() {
         ) : (
           recentItems.map((item) => {
             const assigneeNames = item.isCustom ? formatAssigneeNames(item) : null;
+            const isWorkout = !item.tags?.includes('tutoring');
             return (
             <View key={item._id} style={styles.recentRow}>
               <View style={styles.recentIconWrap}>
@@ -870,7 +933,16 @@ export default function AdminContentScreen() {
                   {assigneeNames ? ` · Assigned to ${assigneeNames}` : null}
                 </Text>
               </View>
-              {item.videoUrl ? (
+              {isWorkout ? (
+                <TouchableOpacity
+                  style={styles.recentEditButton}
+                  onPress={() => navigation.navigate('AdminWorkoutForm', { workoutId: item._id })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit ${item.title}`}
+                >
+                  <Ionicons name="pencil" size={16} color="#92400e" />
+                </TouchableOpacity>
+              ) : item.videoUrl ? (
                 <Ionicons name="link-outline" size={16} color="#9ca3af" />
               ) : null}
             </View>
@@ -968,6 +1040,24 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     lineHeight: 18,
   },
+  manageWorkoutsLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 16,
+  },
+  manageWorkoutsLinkText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#92400e',
+  },
   field: {
     marginBottom: 14,
   },
@@ -988,6 +1078,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#111827',
     backgroundColor: '#fafafa',
+  },
+  inputSpacingTop: {
+    marginTop: 10,
+  },
+  fieldHint: {
+    marginTop: 6,
+    fontSize: 11,
+    color: '#6b7280',
+    lineHeight: 16,
   },
   textArea: {
     minHeight: 80,
@@ -1124,6 +1223,17 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#6b7280',
     marginTop: 2,
+  },
+  recentEditButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#fef3c7',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
   },
   clientLoader: {
     paddingVertical: 12,

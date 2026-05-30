@@ -6,15 +6,17 @@ const SOURCE = require('../../assets/kingvision-logo.png');
 type BrandLogoProps = {
   /** Override width/height; default is square ~square aspect from asset */
   style?: StyleProp<ImageStyle>;
+  onError?: () => void;
 };
 
-export function BrandLogo({ style }: BrandLogoProps) {
+export function BrandLogo({ style, onError }: BrandLogoProps) {
   return (
     <Image
       source={SOURCE}
       style={[styles.image, style]}
       accessibilityRole="image"
       accessibilityLabel="King Vision Fitness"
+      onError={onError}
     />
   );
 }

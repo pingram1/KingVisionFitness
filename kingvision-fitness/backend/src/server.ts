@@ -25,6 +25,7 @@ import subscriptionRoutes from './routes/subscription.routes';
 import scheduleRoutes from './routes/schedule.routes';
 import recommendationRoutes from './routes/recommendation.routes';
 import billingRoutes from './routes/billing.routes';
+import adminRoutes from './routes/admin.routes';
 import stripeWebhookRoutes from './routes/stripeWebhook.routes';
 import './models/Bubble';
 import './models/Group';
@@ -84,7 +85,7 @@ app.use(hpp());
 // requests are already gated by signature verification.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: env.NODE_ENV === 'production' ? 100 : 500,
   message: 'Too many requests from this IP, please try again later.',
   skip: (req) => req.originalUrl.startsWith('/api/webhooks/'),
 });
@@ -101,6 +102,7 @@ app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/schedule', scheduleRoutes);
 app.use('/api/recommendations', recommendationRoutes);
 app.use('/api/billing', billingRoutes);
+app.use('/api/admin', adminRoutes);
 
 // ── Health check ───────────────────────────────────────────────────────────────
 app.get('/health', (req: Request, res: Response) => {

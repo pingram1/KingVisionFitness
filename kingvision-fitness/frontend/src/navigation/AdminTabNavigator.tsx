@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AdminHomeScreen from '../pages/Admin/AdminHomeScreen';
 import AdminScheduleScreen from '../pages/Admin/AdminScheduleScreen';
 import AdminBillingScreen from '../pages/Admin/AdminBillingScreen';
-import AdminContentScreen from '../pages/Admin/AdminContentScreen';
+import AdminContentNavigator from './AdminContentNavigator';
 import AdminTeamsNavigator from './AdminTeamsNavigator';
 
 const Tab = createBottomTabNavigator();
@@ -91,8 +91,8 @@ export default function AdminTabNavigator() {
       />
       <Tab.Screen
         name="Content"
-        component={AdminContentScreen}
-        options={{ title: 'Content' }}
+        component={AdminContentNavigator}
+        options={{ title: 'Content', headerShown: false }}
       />
       <Tab.Screen
         name="Teams"

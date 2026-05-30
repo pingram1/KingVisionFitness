@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import type {
   WeeklyWorkoutSummary,
 } from '../types/user';
 import type { HomeStackParamList } from '../navigation/HomeNavigator';
+import { useFocusRefresh } from '../hooks/useFocusRefresh';
 
 type HomeScreenNav = NativeStackNavigationProp<HomeStackParamList, 'HomeMain'>;
 
@@ -135,9 +136,7 @@ export default function HomeScreen() {
     }
   }, [buildStatsFromProfile]);
 
-  useEffect(() => {
-    loadDashboardData(true);
-  }, [loadDashboardData]);
+  useFocusRefresh(loadDashboardData);
 
   const onRefresh = async () => {
     setRefreshing(true);

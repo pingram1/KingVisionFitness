@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import api from '../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import type { Workout } from '../types/workout';
 import type { WorkoutsStackParamList } from '../navigation/WorkoutsNavigator';
+import { useFocusRefresh } from '../hooks/useFocusRefresh';
 
 type FilterType = 'all' | 'strength' | 'cardio' | 'hiit' | 'flexibility' | 'functional' | 'mixed';
 type DifficultyFilter = 'all' | 'beginner' | 'intermediate' | 'advanced';
@@ -34,6 +35,7 @@ export default function WorkoutsScreen() {
   const [typeFilter, setTypeFilter] = useState<FilterType>('all');
   const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>('all');
   const [activeTab, setActiveTab] = useState<'weekly' | 'custom'>('weekly');
+  const skipTabReloadRef = useRef(true);
 
   const isActiveClient = user?.subscription?.tier === 'active-client';
 
@@ -64,9 +66,15 @@ export default function WorkoutsScreen() {
     [activeTab, isActiveClient]
   );
 
+  useFocusRefresh(loadWorkouts);
+
   useEffect(() => {
-    loadWorkouts(true);
-  }, [loadWorkouts]);
+    if (skipTabReloadRef.current) {
+      skipTabReloadRef.current = false;
+      return;
+    }
+    loadWorkouts(false);
+  }, [activeTab, isActiveClient, loadWorkouts]);
 
   useEffect(() => {
     let filtered = [...workouts];

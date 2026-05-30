@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,52 +12,49 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
+import { fetchAdminAnalytics, formatCount, formatMrr } from '../../api/adminAnalytics';
+import type { AdminAnalytics } from '../../types/adminAnalytics';
 
-type OverviewMetric = {
-  id: string;
+type MetricTileProps = {
   label: string;
   value: string;
-  delta?: string;
   icon: keyof typeof Ionicons.glyphMap;
   accent: string;
+  loading?: boolean;
 };
 
-type ActivityItem = {
-  id: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  subtitle: string;
-  when: string;
-};
+function MetricTile({ label, value, icon, accent, loading }: MetricTileProps) {
+  return (
+    <View style={styles.metricCard}>
+      <View style={[styles.metricIconWrap, { backgroundColor: `${accent}22` }]}>
+        <Ionicons name={icon} size={20} color={accent} />
+      </View>
+      <Text style={styles.metricLabel}>{label}</Text>
+      {loading ? (
+        <ActivityIndicator size="small" color={accent} style={styles.metricLoader} />
+      ) : (
+        <Text style={styles.metricValue}>{value}</Text>
+      )}
+    </View>
+  );
+}
+
+function SkeletonBlock({ height }: { height: number }) {
+  return <View style={[styles.skeleton, { height }]} />;
+}
 
 /**
- * Admin Overview — the home tab of the SUPER_ADMIN shell.
- *
- * This screen is intentionally *not* the client HomeScreen. Admins see business
- * metrics (clients, trainers, revenue, engagement) rather than personal
- * workouts. A logout control lives in the header so the owner can sign out
- * without ever having to enter a client-facing screen.
- *
- * The numbers below are scaffolded with placeholders. Replace `loadOverview`
- * with a real call to e.g. `GET /api/admin/overview` once that endpoint exists.
+ * Admin Command Center — live business metrics for SUPER_ADMIN.
  */
 export default function AdminHomeScreen() {
   const navigation = useNavigation();
   const { user, logout } = useAuth();
 
-  const [loading, setLoading] = useState(false);
+  const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
-
-  // Placeholder data — wire to backend in a follow-up. Keeping it local-only
-  // means the screen renders immediately and shows the intended layout.
-  const [metrics, setMetrics] = useState<OverviewMetric[]>([
-    { id: 'clients',     label: 'Total Clients',     value: '—', icon: 'people-outline',      accent: '#667eea' },
-    { id: 'trainers',    label: 'Active Trainers',   value: '—', icon: 'fitness-outline',     accent: '#22c55e' },
-    { id: 'revenue',     label: 'Revenue (MTD)',     value: '—', icon: 'cash-outline',        accent: '#f59e0b' },
-    { id: 'engagement',  label: 'Workouts This Week', value: '—', icon: 'pulse-outline',       accent: '#a855f7' },
-  ]);
-  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
 
   const handleLogout = useCallback(() => {
     Alert.alert('Log out', 'Sign out of the admin console?', [
@@ -69,8 +66,8 @@ export default function AdminHomeScreen() {
           try {
             setLoggingOut(true);
             await logout();
-          } catch (error) {
-            console.error('Admin logout failed:', error);
+          } catch (logoutError) {
+            console.error('Admin logout failed:', logoutError);
             Alert.alert('Logout failed', 'Something went wrong. Please try again.');
           } finally {
             setLoggingOut(false);
@@ -100,35 +97,39 @@ export default function AdminHomeScreen() {
     });
   }, [navigation, handleLogout, loggingOut]);
 
-  const loadOverview = useCallback(async () => {
-    // TODO: replace with `api.get('/admin/overview')` once the endpoint exists.
-    // For now, simulate "loaded" so the placeholders render consistently.
-    setMetrics((prev) => prev.map((m) => ({ ...m, value: m.value })));
-    setRecentActivity([]);
+  const loadAnalytics = useCallback(async (showFullScreenLoader = false) => {
+    try {
+      setError(null);
+      if (showFullScreenLoader) setLoading(true);
+      const data = await fetchAdminAnalytics();
+      setAnalytics(data);
+    } catch (loadError) {
+      console.error('Failed to load admin analytics:', loadError);
+      setError('Could not load analytics. Pull to refresh.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const onRefresh = useCallback(async () => {
-    try {
-      setRefreshing(true);
-      await loadOverview();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [loadOverview]);
+  useEffect(() => {
+    void loadAnalytics(true);
+  }, [loadAnalytics]);
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#d4af37" />
-      </View>
-    );
-  }
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadAnalytics(false);
+    setRefreshing(false);
+  }, [loadAnalytics]);
+
+  const showSkeleton = loading && !analytics;
 
   return (
     <ScrollView
       style={styles.screen}
       contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#d4af37" />}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#d4af37" />
+      }
     >
       <View style={styles.hero}>
         <View style={styles.heroBadge}>
@@ -138,62 +139,105 @@ export default function AdminHomeScreen() {
         <Text style={styles.heroTitle}>
           Welcome back{user?.profile?.firstName ? `, ${user.profile.firstName}` : ''}.
         </Text>
-        <Text style={styles.heroSubtitle}>
-          Here's the state of KingVision Fitness today.
-        </Text>
+        <Text style={styles.heroSubtitle}>Live business metrics for KingVision Fitness.</Text>
       </View>
 
-      <View style={styles.metricGrid}>
-        {metrics.map((metric) => (
-          <View key={metric.id} style={styles.metricCard}>
-            <View style={[styles.metricIconWrap, { backgroundColor: `${metric.accent}1A` }]}>
-              <Ionicons name={metric.icon} size={20} color={metric.accent} />
-            </View>
-            <Text style={styles.metricLabel}>{metric.label}</Text>
-            <Text style={styles.metricValue}>{metric.value}</Text>
-            {metric.delta ? (
-              <Text style={styles.metricDelta}>{metric.delta}</Text>
-            ) : (
-              <Text style={styles.metricDeltaMuted}>— no data yet —</Text>
-            )}
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.sectionCard}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Recent Activity</Text>
-          <Text style={styles.sectionHint}>Last 24h</Text>
+      {error && !showSkeleton ? (
+        <View style={styles.errorBanner}>
+          <Ionicons name="alert-circle-outline" size={18} color="#b45309" />
+          <Text style={styles.errorBannerText}>{error}</Text>
         </View>
-        {recentActivity.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="time-outline" size={26} color="#9ca3af" />
-            <Text style={styles.emptyStateTitle}>No activity yet</Text>
-            <Text style={styles.emptyStateBody}>
-              Sign-ups, workout completions, and payments will surface here as
-              soon as the admin telemetry endpoint is wired up.
+      ) : null}
+
+      {/* Top row — financials */}
+      <View style={styles.revenueCard}>
+        <View style={styles.revenueHeader}>
+          <View style={styles.revenueIconWrap}>
+            <Ionicons name="cash" size={22} color="#d4af37" />
+          </View>
+          <View style={styles.revenueHeaderText}>
+            <Text style={styles.revenueLabel}>Estimated MRR</Text>
+            <Text style={styles.revenueHint}>
+              {analytics
+                ? `${formatCount(analytics.revenue.activeClientCount)} Active Client${
+                    analytics.revenue.activeClientCount === 1 ? '' : 's'
+                  } × ${formatMrr(analytics.revenue.pricePerClientCents)}`
+                : 'Monthly recurring revenue projection'}
             </Text>
           </View>
+        </View>
+        {showSkeleton ? (
+          <SkeletonBlock height={44} />
         ) : (
-          recentActivity.map((item) => (
-            <View key={item.id} style={styles.activityRow}>
-              <View style={styles.activityIconWrap}>
-                <Ionicons name={item.icon} size={18} color="#4b5563" />
-              </View>
-              <View style={styles.activityBody}>
-                <Text style={styles.activityTitle}>{item.title}</Text>
-                <Text style={styles.activitySubtitle}>{item.subtitle}</Text>
-              </View>
-              <Text style={styles.activityWhen}>{item.when}</Text>
-            </View>
-          ))
+          <Text style={styles.revenueValue}>
+            {formatMrr(analytics?.revenue.estimatedMrrCents ?? 0)}
+          </Text>
         )}
       </View>
+
+      {/* Middle grid — users */}
+      <Text style={styles.sectionHeading}>Users</Text>
+      <View style={styles.metricGrid}>
+        <MetricTile
+          label="Total Users"
+          value={formatCount(analytics?.users.total ?? 0)}
+          icon="people"
+          accent="#667eea"
+          loading={showSkeleton}
+        />
+        <MetricTile
+          label="Active Clients"
+          value={formatCount(analytics?.users.byTier.ACTIVE_CLIENT ?? 0)}
+          icon="star"
+          accent="#22c55e"
+          loading={showSkeleton}
+        />
+        <MetricTile
+          label="Specified Clients"
+          value={formatCount(analytics?.users.byTier.SPECIFIED ?? 0)}
+          icon="ribbon"
+          accent="#f59e0b"
+          loading={showSkeleton}
+        />
+        <MetricTile
+          label="Active Coaches"
+          value={formatCount(analytics?.users.activeCoaches ?? 0)}
+          icon="fitness"
+          accent="#a855f7"
+          loading={showSkeleton}
+        />
+      </View>
+
+      {/* Bottom — engagement */}
+      <View style={styles.engagementCard}>
+        <View style={styles.engagementHeader}>
+          <Ionicons name="pulse" size={22} color="#667eea" />
+          <Text style={styles.engagementTitle}>Platform Workouts Completed This Week</Text>
+        </View>
+        {showSkeleton ? (
+          <SkeletonBlock height={36} />
+        ) : (
+          <>
+            <Text style={styles.engagementValue}>
+              {formatCount(analytics?.engagement.workoutsCompletedLast7Days ?? 0)}
+            </Text>
+            <Text style={styles.engagementHint}>
+              Completed sessions logged in the last 7 days across all users.
+            </Text>
+          </>
+        )}
+      </View>
+
+      {analytics?.generatedAt && !showSkeleton ? (
+        <Text style={styles.updatedAt}>
+          Updated {new Date(analytics.generatedAt).toLocaleString()}
+        </Text>
+      ) : null}
 
       <View style={styles.footerNote}>
         <Ionicons name="information-circle-outline" size={14} color="#9ca3af" />
         <Text style={styles.footerNoteText}>
-          Signed in as {user?.email ?? '—'} · role {user?.role ?? 'SUPER_ADMIN'}
+          Signed in as {user?.email ?? '—'} · {user?.role ?? 'SUPER_ADMIN'}
         </Text>
       </View>
     </ScrollView>
@@ -203,12 +247,6 @@ export default function AdminHomeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#f7f7fb',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     backgroundColor: '#f7f7fb',
   },
   content: {
@@ -249,11 +287,82 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     marginTop: 2,
   },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+  },
+  errorBannerText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#92400e',
+    fontWeight: '600',
+  },
+  revenueCard: {
+    backgroundColor: '#1f2937',
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  revenueHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 12,
+  },
+  revenueIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#374151',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  revenueHeaderText: {
+    flex: 1,
+  },
+  revenueLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#d4af37',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  revenueHint: {
+    fontSize: 12,
+    color: '#9ca3af',
+    marginTop: 2,
+  },
+  revenueValue: {
+    fontSize: 40,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: -0.5,
+  },
+  sectionHeading: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#374151',
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
   metricGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   metricCard: {
     width: '48.5%',
@@ -261,6 +370,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 14,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
     shadowColor: '#000',
     shadowOpacity: 0.04,
     shadowRadius: 6,
@@ -278,102 +389,63 @@ const styles = StyleSheet.create({
   metricLabel: {
     fontSize: 12,
     color: '#6b7280',
-    fontWeight: '500',
-  },
-  metricValue: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#111827',
-    marginTop: 2,
-  },
-  metricDelta: {
-    fontSize: 12,
-    color: '#22c55e',
-    marginTop: 4,
     fontWeight: '600',
   },
-  metricDeltaMuted: {
-    fontSize: 11,
-    color: '#9ca3af',
+  metricValue: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#111827',
     marginTop: 4,
-    fontStyle: 'italic',
   },
-  sectionCard: {
+  metricLoader: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+  },
+  engagementCard: {
     backgroundColor: '#ffffff',
     borderRadius: 14,
     padding: 16,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
     shadowColor: '#000',
     shadowOpacity: 0.04,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 1 },
     elevation: 1,
   },
-  sectionHeader: {
+  engagementHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    gap: 8,
+    marginBottom: 10,
   },
-  sectionTitle: {
-    fontSize: 16,
+  engagementTitle: {
+    flex: 1,
+    fontSize: 14,
     fontWeight: '700',
     color: '#111827',
   },
-  sectionHint: {
-    fontSize: 12,
-    color: '#9ca3af',
+  engagementValue: {
+    fontSize: 34,
+    fontWeight: '800',
+    color: '#667eea',
   },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-  },
-  emptyStateTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    marginTop: 8,
-  },
-  emptyStateBody: {
+  engagementHint: {
     fontSize: 12,
     color: '#6b7280',
-    textAlign: 'center',
-    marginTop: 4,
-    lineHeight: 18,
+    marginTop: 6,
+    lineHeight: 17,
   },
-  activityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#e5e7eb',
-  },
-  activityIconWrap: {
-    width: 32,
-    height: 32,
+  skeleton: {
+    backgroundColor: '#e5e7eb',
     borderRadius: 8,
-    backgroundColor: '#f3f4f6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
+    marginTop: 4,
   },
-  activityBody: {
-    flex: 1,
-  },
-  activityTitle: {
-    fontSize: 14,
-    color: '#111827',
-    fontWeight: '500',
-  },
-  activitySubtitle: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginTop: 2,
-  },
-  activityWhen: {
+  updatedAt: {
     fontSize: 11,
     color: '#9ca3af',
-    marginLeft: 8,
+    textAlign: 'center',
+    marginTop: 14,
   },
   footerNote: {
     flexDirection: 'row',

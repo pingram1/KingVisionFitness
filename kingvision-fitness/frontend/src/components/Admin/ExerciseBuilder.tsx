@@ -5,16 +5,31 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type { ExerciseDraft } from '../../types/workout';
+import type { ExerciseDraft, ExerciseEquipment, ExerciseTargetType } from '../../types/workout';
+
+const TARGET_TYPE_OPTIONS: ExerciseTargetType[] = ['reps', 'duration'];
+
+const EQUIPMENT_OPTIONS: ExerciseEquipment[] = [
+  'barbell',
+  'dumbbell',
+  'bodyweight',
+  'machine',
+  'cable',
+  'kettlebell',
+  'none',
+];
 
 export function createEmptyExercise(): ExerciseDraft {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name: '',
     sets: '3',
-    reps: '8-12',
+    targetType: 'reps',
+    targetValue: '8-12',
+    equipment: 'barbell',
     restTime: '60s',
     videoUrl: '',
   };
@@ -90,6 +105,51 @@ export default function ExerciseBuilder({ exercises, onChange }: ExerciseBuilder
             />
           </Field>
 
+          <Field label="Tracking">
+            <View style={styles.chipRow}>
+              {TARGET_TYPE_OPTIONS.map((type) => {
+                const active = exercise.targetType === type;
+                return (
+                  <TouchableOpacity
+                    key={type}
+                    style={[styles.chip, active && styles.chipActive]}
+                    onPress={() =>
+                      updateExercise(exercise.id, {
+                        targetType: type,
+                        targetValue: type === 'duration' ? '60' : '8-12',
+                      })
+                    }
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                      {type === 'duration' ? 'Time hold' : 'Reps'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </Field>
+
+          <Field label="Equipment">
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.chipRow}>
+                {EQUIPMENT_OPTIONS.map((equipment) => {
+                  const active = exercise.equipment === equipment;
+                  return (
+                    <TouchableOpacity
+                      key={equipment}
+                      style={[styles.chip, active && styles.chipActive]}
+                      onPress={() => updateExercise(exercise.id, { equipment })}
+                    >
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                        {equipment.replace('_', ' ')}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </Field>
+
           <View style={styles.row}>
             <View style={styles.rowField}>
               <Field label="Sets">
@@ -104,17 +164,24 @@ export default function ExerciseBuilder({ exercises, onChange }: ExerciseBuilder
               </Field>
             </View>
             <View style={styles.rowField}>
-              <Field label="Reps">
+              <Field label={exercise.targetType === 'duration' ? 'Target (seconds)' : 'Reps'}>
                 <TextInput
                   style={styles.input}
-                  value={exercise.reps}
-                  onChangeText={(reps) => updateExercise(exercise.id, { reps })}
-                  placeholder="8-12"
+                  value={exercise.targetValue}
+                  onChangeText={(targetValue) => updateExercise(exercise.id, { targetValue })}
+                  keyboardType={exercise.targetType === 'duration' ? 'number-pad' : 'default'}
+                  placeholder={exercise.targetType === 'duration' ? '60' : '8-12'}
                   placeholderTextColor="#9ca3af"
                 />
               </Field>
             </View>
           </View>
+
+          {exercise.equipment === 'bodyweight' ? (
+            <Text style={styles.hint}>
+              Bodyweight — clients log reps or hold time without entering weight.
+            </Text>
+          ) : null}
 
           <View style={styles.row}>
             <View style={styles.rowField}>
@@ -229,6 +296,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#111827',
     backgroundColor: '#ffffff',
+  },
+  hint: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 10,
+    lineHeight: 17,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#fff',
+  },
+  chipActive: {
+    backgroundColor: '#fef3c7',
+    borderColor: '#d4af37',
+  },
+  chipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4b5563',
+    textTransform: 'capitalize',
+  },
+  chipTextActive: {
+    color: '#92400e',
   },
   row: {
     flexDirection: 'row',

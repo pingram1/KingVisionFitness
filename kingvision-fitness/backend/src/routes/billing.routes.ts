@@ -2,19 +2,9 @@ import express, { Request, Response, Router } from 'express';
 import crypto from 'crypto';
 import { auth } from '../middleware/auth';
 import { env } from '../config/env';
+import { TIER_CATALOG } from '../config/tierCatalog';
 
 const router: Router = express.Router();
-
-/**
- * Catalog of product tiers exposed by the paywall. The price/interval are
- * placeholders until Stripe products are provisioned — the frontend may render
- * them as the "marketing" price for now.
- */
-const TIER_CATALOG = {
-  BASIC: { priceCents: 0, interval: 'month' },
-  SPECIFIED: { priceCents: 1999, interval: 'month' },
-  ACTIVE_CLIENT: { priceCents: 4999, interval: 'month' },
-} as const;
 
 type PaidTier = Exclude<keyof typeof TIER_CATALOG, 'BASIC'>;
 const PAID_TIERS: readonly PaidTier[] = ['SPECIFIED', 'ACTIVE_CLIENT'];

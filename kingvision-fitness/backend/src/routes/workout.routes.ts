@@ -8,6 +8,7 @@ import {
   createWorkoutValidators,
   normalizeWorkoutExercises,
 } from '../validators/workout.validators';
+import { updateWorkoutAdmin } from '../controllers/workout.controller';
 
 const router: Router = express.Router();
 
@@ -170,6 +171,17 @@ router.get(
       });
     }
   }
+);
+
+// @route   PUT /api/workouts/admin/:id
+// @desc    Update a published workout template (does not mutate WorkoutSession history)
+// @access  Private — SUPER_ADMIN | TRAINER
+router.put(
+  '/admin/:id',
+  auth,
+  authorizeRoles('SUPER_ADMIN', 'TRAINER'),
+  createWorkoutValidators,
+  updateWorkoutAdmin
 );
 
 // @route   POST /api/workouts/:id/complete

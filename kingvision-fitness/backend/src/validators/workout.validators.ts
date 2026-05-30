@@ -37,6 +37,7 @@ type RawExerciseInput = {
   name?: string;
   sets?: number | string;
   reps?: number | string;
+  duration?: number | string;
   restTime?: number | string;
   videoUrl?: string;
   muscleGroups?: string[];
@@ -87,6 +88,10 @@ export function normalizeWorkoutExercises(
     sets: typeof ex.sets === 'number' ? ex.sets : parseInt(String(ex.sets), 10),
     reps: String(ex.reps),
     restTime: parseRestTimeSeconds(ex.restTime),
+    duration:
+      ex.duration !== undefined && ex.duration !== null && ex.duration !== ''
+        ? Math.max(0, Math.round(Number(ex.duration)))
+        : undefined,
     muscleGroups: ex.muscleGroups?.length ? ex.muscleGroups : muscleFallback,
     equipment: ex.equipment || 'bodyweight',
     videoUrl: ex.videoUrl || undefined,
@@ -203,6 +208,18 @@ export const createWorkoutValidators = [
     .optional()
     .notEmpty()
     .withMessage('Exercise reps are required'),
+  body('exercises.*.duration')
+    .optional()
+    .isInt({ min: 1, max: 3600 })
+    .withMessage('Exercise duration must be 1–3600 seconds'),
+  body('exercises.*.equipment')
+    .optional()
+    .isIn([
+      'barbell', 'dumbbell', 'kettlebell', 'resistance_band', 'cable',
+      'machine', 'bodyweight', 'medicine_ball', 'stability_ball', 'trx',
+      'pull_up_bar', 'bench', 'box', 'none',
+    ])
+    .withMessage('Invalid exercise equipment'),
   body('exercises.*.restTime')
     .optional(),
   body('exercises.*.videoUrl')
