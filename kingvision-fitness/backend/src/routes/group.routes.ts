@@ -10,6 +10,8 @@ import { validateBody } from '../middleware/validate';
 import { checkInBodySchema } from '../schemas/group.schemas';
 import { haversineMeters } from '../utils/geo';
 import { buildLeaderboard } from '../utils/leaderboard';
+import { parseAthleteStatsPayload } from '../utils/athleteStatsPayload';
+import { applyAthleteStatsUpdate } from '../services/athleteStats.service';
 
 const router: Router = express.Router();
 const inviteAlphabet = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
@@ -69,6 +71,38 @@ async function syncUserGroupMembership(
     });
   }
   await user.save();
+}
+
+/** Remove a group from the user's mirrored membership arrays. */
+async function pruneUserGroupMembership(
+  user: InstanceType<typeof User>,
+  groupId: mongoose.Types.ObjectId
+): Promise<void> {
+  const gid = groupId.toString();
+  user.groups = user.groups.filter((id) => id.toString() !== gid);
+  user.groupMemberships = (user.groupMemberships ?? []).filter(
+    (m) => m.group.toString() !== gid
+  );
+  await user.save();
+}
+
+function formatRosterEntry(group: any, membership: any) {
+  const user = membership.user;
+  const userId = user?._id ?? user;
+  const groupType = group.groupType as GroupType;
+  const role = membership.role as GroupMemberRole;
+  return {
+    membershipId: membership._id,
+    userId,
+    email: user?.email ?? '',
+    firstName: user?.profile?.firstName ?? '',
+    lastName: user?.profile?.lastName ?? '',
+    subscriptionTier: user?.subscriptionTier ?? 'BASIC',
+    role: normalizeRoleForGroupType(groupType, role),
+    roleLabel: contextualRoleLabel(groupType, role),
+    joinedAt: membership.joinedAt,
+    performanceGrade: membership.performanceGrade ?? 0,
+  };
 }
 
 const GROUP_TYPE_LABELS: Record<GroupType, string> = {
@@ -897,6 +931,325 @@ router.patch('/:id/members/:userId/role', auth, async (req: any, res: any) => {
   } catch (error) {
     console.error('Error updating member role:', error);
     res.status(500).json({ success: false, message: 'Error updating member role' });
+  }
+});
+
+// @route   GET /api/groups/:id/roster
+// @desc    Team roster for coaches (and SUPER_ADMIN)
+// @access  Private — group coach or SUPER_ADMIN
+router.get('/:id/roster', auth, async (req: any, res: any) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid group ID' });
+    }
+
+    const group = await Group.findById(id)
+      .select('name description groupType inviteCode memberships members type address createdAt updatedAt')
+      .populate('memberships.user', 'email profile.firstName profile.lastName subscriptionTier');
+
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    const requesterId = req.user._id.toString();
+    const isSuperAdmin = req.user.role === 'SUPER_ADMIN';
+    if (!isSuperAdmin && !group.isCoach(requesterId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only team coaches can view the roster',
+      });
+    }
+
+    const roster = (group.memberships ?? []).map((m) => formatRosterEntry(group, m));
+
+    res.json({
+      success: true,
+      data: {
+        group: formatAdminGroupSummary(group),
+        roster,
+      },
+    });
+  } catch (error) {
+    console.error('Group roster error:', error);
+    res.status(500).json({ success: false, message: 'Error fetching roster' });
+  }
+});
+
+// @route   POST /api/groups/:id/members
+// @desc    Coach adds a player to an athletic team by email
+// @access  Private — group coach or SUPER_ADMIN
+router.post('/:id/members', auth, async (req: any, res: any) => {
+  try {
+    const { id } = req.params;
+    const email = String(req.body.email ?? '')
+      .trim()
+      .toLowerCase();
+    const firstName = String(req.body.firstName ?? '').trim();
+    const lastName = String(req.body.lastName ?? '').trim();
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid group ID' });
+    }
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ success: false, message: 'A valid email is required' });
+    }
+    if (!firstName || !lastName) {
+      return res.status(400).json({
+        success: false,
+        message: 'First name and last name are required',
+      });
+    }
+
+    const group = await Group.findById(id);
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    const requesterId = req.user._id.toString();
+    const isSuperAdmin = req.user.role === 'SUPER_ADMIN';
+    if (!isSuperAdmin && !group.isCoach(requesterId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only team coaches can add players',
+      });
+    }
+
+    if (group.groupType !== 'athletic_team') {
+      return res.status(400).json({
+        success: false,
+        message: 'Players can only be added to athletic teams',
+      });
+    }
+
+    let user = await User.findOne({ email });
+    let createdUser = false;
+    let temporaryPassword: string | null = null;
+
+    if (!user) {
+      temporaryPassword = generateTemporaryPassword();
+      user = new User({
+        email,
+        password: temporaryPassword,
+        role: 'CLIENT',
+        subscriptionTier: 'BASIC',
+        emailVerified: true,
+        profile: { firstName, lastName },
+      });
+      await user.save();
+      createdUser = true;
+    }
+
+    const userId = String(user._id);
+    const gid = groupObjectId(group._id);
+    const existingMembership = group.getMembership(userId);
+
+    if (existingMembership) {
+      if (existingMembership.role === 'coach') {
+        return res.status(400).json({
+          success: false,
+          message: 'This user is already a coach on this team',
+        });
+      }
+      return res.json({
+        success: true,
+        message: `${firstName} ${lastName} is already on the roster`,
+        data: {
+          user: {
+            userId: user._id,
+            email: user.email,
+            firstName: user.profile?.firstName ?? firstName,
+            lastName: user.profile?.lastName ?? lastName,
+            role: existingMembership.role,
+          },
+          temporaryPassword: null,
+          createdUser: false,
+        },
+      });
+    }
+
+    await group.addMembership(userId, 'athlete');
+    await syncUserGroupMembership(user, gid, 'athlete');
+
+    const message = createdUser
+      ? `Player account created and added. Share the temporary password with ${firstName}.`
+      : `${user.profile?.firstName ?? firstName} has been added to the team.`;
+
+    return res.status(createdUser ? 201 : 200).json({
+      success: true,
+      message,
+      data: {
+        user: {
+          userId: user._id,
+          email: user.email,
+          firstName: user.profile?.firstName ?? firstName,
+          lastName: user.profile?.lastName ?? lastName,
+          role: 'athlete',
+        },
+        temporaryPassword,
+        createdUser,
+      },
+    });
+  } catch (error) {
+    console.error('Add team member error:', error);
+    res.status(500).json({ success: false, message: 'Error adding player' });
+  }
+});
+
+// @route   DELETE /api/groups/:id/members/:userId
+// @desc    Coach removes a player from an athletic team
+// @access  Private — group coach or SUPER_ADMIN
+router.delete('/:id/members/:userId', auth, async (req: any, res: any) => {
+  try {
+    const { id, userId: targetUserId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return res.status(400).json({ success: false, message: 'Invalid group or user ID' });
+    }
+
+    const group = await Group.findById(id);
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    const requesterId = req.user._id.toString();
+    const isSuperAdmin = req.user.role === 'SUPER_ADMIN';
+    if (!isSuperAdmin && !group.isCoach(requesterId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only team coaches can remove players',
+      });
+    }
+
+    if (group.groupType !== 'athletic_team') {
+      return res.status(400).json({
+        success: false,
+        message: 'Roster management is only available for athletic teams',
+      });
+    }
+
+    const membership = group.getMembership(targetUserId);
+    if (!membership) {
+      return res.status(404).json({ success: false, message: 'Player not found on this team' });
+    }
+
+    if (membership.role === 'coach') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot remove a coach from the roster here',
+      });
+    }
+
+    if (targetUserId === requesterId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Coaches cannot remove themselves from the team',
+      });
+    }
+
+    await group.removeMember(targetUserId);
+
+    const targetUser = await User.findById(targetUserId);
+    if (targetUser) {
+      await pruneUserGroupMembership(targetUser, groupObjectId(group._id));
+    }
+
+    res.json({
+      success: true,
+      message: 'Player removed from the team',
+      data: { userId: targetUserId },
+    });
+  } catch (error) {
+    console.error('Remove team member error:', error);
+    res.status(500).json({ success: false, message: 'Error removing player' });
+  }
+});
+
+// @route   PUT /api/groups/:groupId/athletes/:userId/stats
+// @desc    Coach enters / updates athlete combine measurables
+// @access  Private — group coach or SUPER_ADMIN
+router.put('/:groupId/athletes/:userId/stats', auth, async (req: any, res: any) => {
+  try {
+    const { groupId, userId: targetUserId } = req.params;
+    const requesterId = req.user._id.toString();
+
+    const group = await Group.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    if (group.groupType !== 'athletic_team') {
+      return res.status(400).json({
+        success: false,
+        message: 'Athlete stats can only be updated for athletic teams',
+      });
+    }
+
+    const isSuperAdmin = req.user.role === 'SUPER_ADMIN';
+    const isCoach = group.isCoach(requesterId);
+    if (!isCoach && !isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only team coaches can update athlete stats',
+      });
+    }
+
+    const membership = group.getMembership(targetUserId);
+    if (!membership) {
+      return res.status(404).json({
+        success: false,
+        message: 'Athlete is not a member of this team',
+      });
+    }
+
+    if (membership.role === 'coach') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot update combine stats for a coach',
+      });
+    }
+
+    const { stats: incoming, errors } = parseAthleteStatsPayload(req.body);
+    if (errors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid athlete stats payload',
+        errors,
+      });
+    }
+
+    if (Object.keys(incoming).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Provide at least one measurable to update',
+      });
+    }
+
+    const applied = await applyAthleteStatsUpdate(targetUserId, incoming);
+
+    return res.json({
+      success: true,
+      message: 'Athlete stats updated',
+      data: {
+        bodyWeight: applied.bodyWeight,
+        height: applied.height,
+        squatMax: applied.squatMax,
+        benchMax: applied.benchMax,
+        deadliftMax: applied.deadliftMax,
+        pushUpCount: applied.pushUpCount,
+        sitUpCount: applied.sitUpCount,
+        fortyYardDash: applied.fortyYardDash,
+        performanceGrade: applied.performanceGrade,
+        performanceBreakdown: applied.performanceBreakdown,
+        statHistory: applied.statHistory,
+        lastUpdatedAt: applied.lastUpdatedAt,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'USER_NOT_FOUND') {
+      return res.status(404).json({ success: false, message: 'Athlete not found' });
+    }
+    console.error('Coach athlete stats update error:', error);
+    res.status(500).json({ success: false, message: 'Error updating athlete stats' });
   }
 });
 

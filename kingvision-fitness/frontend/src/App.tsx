@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View, StyleSheet } from 'react-native';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { usePushNotifications } from './hooks/usePushNotifications';
 
 import LoginScreen from './pages/LoginScreen';
 import RegisterScreen from './pages/RegisterScreen';
@@ -31,6 +32,12 @@ function AuthStack() {
 }
 
 // Main app navigator
+function PushNotificationRegistrar() {
+  const { user } = useAuth();
+  usePushNotifications(!!user);
+  return null;
+}
+
 function AppNavigator() {
   const { user, loading } = useAuth();
 
@@ -55,6 +62,7 @@ function AppNavigator() {
 
   return (
     <NavigationContainer>
+      <PushNotificationRegistrar />
       <TabsForRole />
     </NavigationContainer>
   );

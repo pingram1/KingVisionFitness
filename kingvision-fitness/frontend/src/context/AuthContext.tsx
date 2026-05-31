@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import api from '../services/api';
 import { authTokenStorage } from '../storage/authTokenStorage';
+import { clearPushToken } from '../api/pushToken';
 import type { UserRole } from '../types/user';
 
 interface User {
@@ -144,6 +145,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
+      try {
+        await clearPushToken();
+      } catch (error) {
+        console.warn('Could not clear push token on logout:', error);
+      }
+
       // Call logout endpoint to invalidate refresh token
       const refreshToken = await authTokenStorage.getRefreshToken();
       if (refreshToken) {

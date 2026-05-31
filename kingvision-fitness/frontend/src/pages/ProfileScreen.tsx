@@ -307,6 +307,24 @@ export default function ProfileScreen() {
 
       <TouchableOpacity
         style={styles.manageSubscriptionButton}
+        onPress={() => navigation.navigate('ProgressTracking')}
+        accessibilityRole="button"
+        accessibilityLabel="Track Progress"
+      >
+        <View style={[styles.manageSubscriptionIcon, { backgroundColor: '#FF9800' }]}>
+          <Ionicons name="stats-chart-outline" size={20} color="#fff" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.manageSubscriptionTitle}>Track Progress</Text>
+          <Text style={styles.manageSubscriptionSubtitle}>
+            Log weight, measurements, and notes over time
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#999" />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.manageSubscriptionButton}
         onPress={() => navigation.navigate('Upgrade')}
         accessibilityRole="button"
         accessibilityLabel="Manage Subscription"

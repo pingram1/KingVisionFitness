@@ -1,75 +1,16 @@
 import express, { Router } from 'express';
 import mongoose from 'mongoose';
 import User from '../models/User';
-import Group from '../models/Group';
 import { auth, authorizeRoles } from '../middleware/auth';
 import {
   calculatePerformanceGrade,
-  AthleteStats,
 } from '../utils/performanceScoring';
-import { buildStatHistoryEntries } from '../utils/statAudit';
-import type { IAthleteStats } from '../models/User';
+import { parseAthleteStatsPayload } from '../utils/athleteStatsPayload';
+import { applyAthleteStatsUpdate } from '../services/athleteStats.service';
 
 const router: Router = express.Router();
 
 // ─── Athlete-stats helpers ────────────────────────────────────────────────
-
-const ATHLETE_STAT_FIELDS: ReadonlyArray<keyof AthleteStats> = [
-  'bodyWeight',
-  'height',
-  'squatMax',
-  'benchMax',
-  'deadliftMax',
-  'pushUpCount',
-  'sitUpCount',
-  'fortyYardDash',
-];
-
-/** Plausible ranges so a fat-fingered "1000 lb bench" doesn't poison the grade. */
-const STAT_BOUNDS: Record<keyof AthleteStats, { min: number; max: number }> = {
-  bodyWeight: { min: 50, max: 500 },
-  height: { min: 36, max: 96 },
-  squatMax: { min: 0, max: 1500 },
-  benchMax: { min: 0, max: 1000 },
-  deadliftMax: { min: 0, max: 1500 },
-  pushUpCount: { min: 0, max: 500 },
-  sitUpCount: { min: 0, max: 500 },
-  fortyYardDash: { min: 3.5, max: 12 },
-};
-
-/**
- * Pull only the known stat fields from an arbitrary payload and coerce them
- * to numbers. Returns `{ stats, errors }` so the caller can 400 on bad input
- * instead of silently storing garbage.
- */
-function parseAthleteStatsPayload(body: any): {
-  stats: AthleteStats;
-  errors: string[];
-} {
-  const stats: AthleteStats = {};
-  const errors: string[] = [];
-
-  for (const field of ATHLETE_STAT_FIELDS) {
-    const raw = body?.[field];
-    if (raw === undefined || raw === null || raw === '') continue;
-
-    const num = typeof raw === 'string' ? Number(raw) : raw;
-    if (typeof num !== 'number' || !Number.isFinite(num)) {
-      errors.push(`${field} must be a finite number`);
-      continue;
-    }
-
-    const { min, max } = STAT_BOUNDS[field];
-    if (num < min || num > max) {
-      errors.push(`${field} must be between ${min} and ${max}`);
-      continue;
-    }
-
-    stats[field] = num;
-  }
-
-  return { stats, errors };
-}
 
 // @route   GET /api/users/active-clients
 // @desc    List ACTIVE_CLIENT tier users for custom workout assignment
@@ -262,66 +203,29 @@ router.put('/me/athlete-stats', auth, async (req: any, res: any) => {
       });
     }
 
-    const user = await User.findById(req.user._id);
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    // Merge so a partial PUT only updates the supplied fields. Athletes can
-    // submit their bench today and their 40 next week.
-    const currentStats = (user.get('athleteStats') ?? {}) as IAthleteStats;
-    const current: AthleteStats = currentStats;
-    const merged: AthleteStats = { ...current, ...incoming };
-    const existingHistory = currentStats.statHistory ?? [];
-
-    const statHistory = buildStatHistoryEntries(current, merged, existingHistory);
-    const breakdown = calculatePerformanceGrade(merged);
-
-    user.set('athleteStats', {
-      ...merged,
-      performanceGrade: breakdown.overall,
-      performanceBreakdown: breakdown,
-      statHistory,
-      lastUpdatedAt: new Date(),
-    });
-    await user.save();
-
-    // Fan the cached grade out to every athletic-team membership so the
-    // team leaderboard stays fresh without a recomputation pass per request.
-    const userId = new mongoose.Types.ObjectId(String(user._id));
-    await Group.updateMany(
-      {
-        groupType: 'athletic_team',
-        'memberships.user': userId,
-      },
-      {
-        $set: {
-          'memberships.$[m].performanceGrade': breakdown.overall,
-          'memberships.$[m].performanceBreakdown': breakdown,
-          'memberships.$[m].lastGradedAt': new Date(),
-        },
-      },
-      { arrayFilters: [{ 'm.user': userId }] }
-    );
+    const applied = await applyAthleteStatsUpdate(req.user._id, incoming);
 
     return res.json({
       success: true,
       data: {
-        bodyWeight: merged.bodyWeight ?? null,
-        height: merged.height ?? null,
-        squatMax: merged.squatMax ?? null,
-        benchMax: merged.benchMax ?? null,
-        deadliftMax: merged.deadliftMax ?? null,
-        pushUpCount: merged.pushUpCount ?? null,
-        sitUpCount: merged.sitUpCount ?? null,
-        fortyYardDash: merged.fortyYardDash ?? null,
-        performanceGrade: breakdown.overall,
-        performanceBreakdown: breakdown,
-        statHistory,
-        lastUpdatedAt: new Date(),
+        bodyWeight: applied.bodyWeight,
+        height: applied.height,
+        squatMax: applied.squatMax,
+        benchMax: applied.benchMax,
+        deadliftMax: applied.deadliftMax,
+        pushUpCount: applied.pushUpCount,
+        sitUpCount: applied.sitUpCount,
+        fortyYardDash: applied.fortyYardDash,
+        performanceGrade: applied.performanceGrade,
+        performanceBreakdown: applied.performanceBreakdown,
+        statHistory: applied.statHistory,
+        lastUpdatedAt: applied.lastUpdatedAt,
       },
     });
   } catch (error) {
+    if (error instanceof Error && error.message === 'USER_NOT_FOUND') {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
     res.status(500).json({
       success: false,
       message: 'Error updating athlete stats',
@@ -354,22 +258,153 @@ router.post('/me/athlete-stats/preview', auth, async (req: any, res: any) => {
   }
 });
 
+type BodyMeasurements = {
+  chest?: number;
+  waist?: number;
+  hips?: number;
+  thighs?: number;
+  arms?: number;
+};
+
+const MEASUREMENT_BOUNDS: Record<keyof BodyMeasurements, { min: number; max: number }> = {
+  chest: { min: 10, max: 80 },
+  waist: { min: 10, max: 80 },
+  hips: { min: 10, max: 80 },
+  thighs: { min: 10, max: 40 },
+  arms: { min: 5, max: 30 },
+};
+
+function parseBodyMeasurements(raw: unknown): { measurements?: BodyMeasurements; errors: string[] } {
+  const errors: string[] = [];
+  if (raw == null || typeof raw !== 'object') {
+    return { measurements: undefined, errors };
+  }
+  const measurements: BodyMeasurements = {};
+  const source = raw as Record<string, unknown>;
+  for (const key of Object.keys(MEASUREMENT_BOUNDS) as Array<keyof BodyMeasurements>) {
+    const value = source[key];
+    if (value === undefined || value === null || value === '') continue;
+    const num = typeof value === 'string' ? Number(value) : value;
+    if (typeof num !== 'number' || !Number.isFinite(num)) {
+      errors.push(`${key} must be a number`);
+      continue;
+    }
+    const { min, max } = MEASUREMENT_BOUNDS[key];
+    if (num < min || num > max) {
+      errors.push(`${key} must be between ${min} and ${max} inches`);
+      continue;
+    }
+    measurements[key] = num;
+  }
+  return {
+    measurements: Object.keys(measurements).length > 0 ? measurements : undefined,
+    errors,
+  };
+}
+
+// @route   PUT /api/users/push-token
+// @desc    Register Expo push token for mobile alerts
+// @access  Private
+router.put('/push-token', auth, async (req: any, res: any) => {
+  try {
+    const { expoPushToken } = req.body ?? {};
+    if (typeof expoPushToken !== 'string' || !expoPushToken.trim()) {
+      return res.status(400).json({ success: false, message: 'expoPushToken is required' });
+    }
+    const token = expoPushToken.trim();
+    if (!token.startsWith('ExponentPushToken[') && !token.startsWith('ExpoPushToken[')) {
+      return res.status(400).json({ success: false, message: 'Invalid Expo push token format' });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    user.expoPushToken = token;
+    await user.save();
+
+    res.json({ success: true, message: 'Push token registered' });
+  } catch (error) {
+    console.error('Push token registration error:', error);
+    res.status(500).json({ success: false, message: 'Error registering push token' });
+  }
+});
+
+// @route   DELETE /api/users/push-token
+// @desc    Clear Expo push token (e.g. on logout)
+// @access  Private
+router.delete('/push-token', auth, async (req: any, res: any) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    user.expoPushToken = undefined;
+    await user.save();
+    res.json({ success: true, message: 'Push token cleared' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error clearing push token' });
+  }
+});
+
 // @route   POST /api/users/progress
 // @desc    Log progress entry
 // @access  Private
 router.post('/progress', auth, async (req: any, res: any) => {
   try {
-    // TODO: Implement progress logging
-    res.json({
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const errors: string[] = [];
+    const entry: {
+      date: Date;
+      weight?: number;
+      bodyMeasurements?: Record<string, number>;
+      notes?: string;
+    } = { date: new Date() };
+
+    if (req.body?.weight !== undefined && req.body?.weight !== null && req.body?.weight !== '') {
+      const weight = Number(req.body.weight);
+      if (!Number.isFinite(weight) || weight < 50 || weight > 500) {
+        errors.push('weight must be between 50 and 500 lbs');
+      } else {
+        entry.weight = weight;
+      }
+    }
+
+    const { measurements, errors: measureErrors } = parseBodyMeasurements(req.body?.bodyMeasurements);
+    errors.push(...measureErrors);
+    if (measurements) entry.bodyMeasurements = measurements;
+
+    if (req.body?.notes !== undefined && req.body?.notes !== null) {
+      const notes = String(req.body.notes).trim();
+      if (notes.length > 500) errors.push('notes cannot exceed 500 characters');
+      else if (notes) entry.notes = notes;
+    }
+
+    if (!entry.weight && !entry.bodyMeasurements && !entry.notes) {
+      errors.push('Provide at least weight, a body measurement, or notes');
+    }
+
+    if (errors.length > 0) {
+      return res.status(400).json({ success: false, message: errors.join('. ') });
+    }
+
+    user.progressTracking.push(entry as never);
+    await user.save();
+
+    const created = user.progressTracking[user.progressTracking.length - 1];
+
+    res.status(201).json({
       success: true,
-      message: 'Log progress endpoint',
-      data: req.body
+      message: 'Progress logged',
+      data: created,
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error logging progress'
-    });
+    console.error('Progress log error:', error);
+    res.status(500).json({ success: false, message: 'Error logging progress' });
   }
 });
 
@@ -378,17 +413,22 @@ router.post('/progress', auth, async (req: any, res: any) => {
 // @access  Private
 router.get('/progress', auth, async (req: any, res: any) => {
   try {
-    // TODO: Implement progress history retrieval
-    res.json({
-      success: true,
-      message: 'Progress history endpoint',
-      data: []
-    });
+    const user = await User.findById(req.user._id).select('progressTracking').lean();
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const limitRaw = req.query.limit ? parseInt(String(req.query.limit), 10) : 30;
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 30;
+
+    const history = [...(user.progressTracking ?? [])]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, limit);
+
+    res.json({ success: true, data: history });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching progress history'
-    });
+    console.error('Progress history error:', error);
+    res.status(500).json({ success: false, message: 'Error fetching progress history' });
   }
 });
 

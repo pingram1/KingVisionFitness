@@ -5,12 +5,14 @@ import HomeScreen from '../pages/HomeScreen';
 import ClientBookingScreen from '../pages/ClientBookingScreen';
 import ClientSessionsScreen from '../pages/ClientSessionsScreen';
 import NutritionScreen from '../pages/NutritionScreen';
+import ProgressTrackingScreen from '../pages/ProgressTrackingScreen';
 
 export type HomeStackParamList = {
   HomeMain: undefined;
   ClientBooking: undefined;
   ClientSessions: undefined;
   Nutrition: undefined;
+  ProgressTracking: undefined;
 };
 
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
@@ -37,6 +39,11 @@ export default function HomeNavigator() {
         name="Nutrition"
         component={NutritionScreen}
         options={{ title: 'Nutrition & Meals', headerBackTitle: 'Home' }}
+      />
+      <HomeStack.Screen
+        name="ProgressTracking"
+        component={ProgressTrackingScreen}
+        options={{ title: 'Track Progress', headerBackTitle: 'Home' }}
       />
     </HomeStack.Navigator>
   );

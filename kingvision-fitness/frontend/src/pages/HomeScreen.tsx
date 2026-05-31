@@ -23,6 +23,8 @@ import type {
 } from '../types/user';
 import type { HomeStackParamList } from '../navigation/HomeNavigator';
 import { useFocusRefresh } from '../hooks/useFocusRefresh';
+import { fetchWeeklyRecommendations } from '../api/recommendations';
+import type { RecommendedWorkout } from '../types/recommendations';
 
 type HomeScreenNav = NativeStackNavigationProp<HomeStackParamList, 'HomeMain'>;
 
@@ -83,6 +85,7 @@ export default function HomeScreen() {
   const { user, refreshProfile } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyWorkoutSummary[]>([]);
+  const [suggestions, setSuggestions] = useState<RecommendedWorkout[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -117,9 +120,10 @@ export default function HomeScreen() {
       setLoadError(null);
       if (showFullScreenLoader) setLoading(true);
 
-      const [profileRes, weeklyRes] = await Promise.all([
+      const [profileRes, weeklyRes, recommendationsRes] = await Promise.all([
         api.get<{ success: boolean; data: UserProfile }>('/users/profile'),
         api.get<{ success: boolean; data: WeeklyWorkoutSummary[] }>('/workouts/weekly'),
+        fetchWeeklyRecommendations(3).catch(() => null),
       ]);
 
       const userProfile = profileRes.data.data;
@@ -127,6 +131,7 @@ export default function HomeScreen() {
 
       setProfile(userProfile);
       setWeeklyPlan(plan);
+      setSuggestions(recommendationsRes?.workouts ?? []);
       setStats(buildStatsFromProfile(userProfile, plan.length));
     } catch (error) {
       console.error('Error loading dashboard:', error);
@@ -301,7 +306,7 @@ export default function HomeScreen() {
           ) : (
             <TouchableOpacity
               style={styles.quickActionCard}
-              onPress={() => Alert.alert('Progress', 'Log progress from your profile soon.')}
+              onPress={() => navigation.navigate('ProgressTracking')}
             >
               <View style={[styles.quickActionIcon, { backgroundColor: '#FF980020' }]}>
                 <Ionicons name="stats-chart" size={28} color="#FF9800" />
@@ -311,6 +316,46 @@ export default function HomeScreen() {
           )}
         </View>
       </View>
+
+      {suggestions.length > 0 ? (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Suggested for You</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Workouts' as never)}>
+              <Text style={styles.seeAllText}>Browse</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.suggestionHint}>
+            Personalized picks based on your training history and tier.
+          </Text>
+          <View style={styles.suggestionList}>
+            {suggestions.map((item) => (
+              <TouchableOpacity
+                key={item.workout._id}
+                style={styles.suggestionRow}
+                onPress={() => navigation.navigate('Workouts' as never)}
+              >
+                <View style={styles.suggestionIcon}>
+                  <Ionicons name="sparkles" size={18} color="#667eea" />
+                </View>
+                <View style={styles.suggestionText}>
+                  <Text style={styles.suggestionTitle}>{item.workout.title}</Text>
+                  <Text style={styles.suggestionMeta}>
+                    {[
+                      item.workout.type,
+                      item.workout.duration ? `${item.workout.duration} min` : null,
+                      `${Math.round(item.similarity * 100)}% match`,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#ccc" />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      ) : null}
 
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
@@ -593,6 +638,46 @@ const styles = StyleSheet.create({
     color: '#333',
     fontWeight: '600',
     textAlign: 'center',
+  },
+  suggestionHint: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 10,
+    lineHeight: 17,
+  },
+  suggestionList: {
+    gap: 8,
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  suggestionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#667eea15',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  suggestionText: {
+    flex: 1,
+  },
+  suggestionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  suggestionMeta: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
   },
   weeklyCard: {
     backgroundColor: '#f9f9f9',

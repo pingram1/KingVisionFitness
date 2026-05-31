@@ -17,6 +17,12 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { format } from 'date-fns';
 import api from '../services/api';
+import {
+  addTeamMember,
+  fetchTeamRoster,
+  removeTeamMember,
+  type TeamRosterMember,
+} from '../api/groupRoster';
 import { useAuth } from '../context/AuthContext';
 import type { GroupDetail, LeaderboardEntry } from '../types/group';
 import {
@@ -44,6 +50,12 @@ export default function GroupDetailScreen() {
   const [manageVisible, setManageVisible] = useState(false);
   const [modifyWorkoutId, setModifyWorkoutId] = useState('');
   const [modifyingWorkout, setModifyingWorkout] = useState(false);
+  const [roster, setRoster] = useState<TeamRosterMember[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [addEmail, setAddEmail] = useState('');
+  const [addFirstName, setAddFirstName] = useState('');
+  const [addLastName, setAddLastName] = useState('');
+  const [addingMember, setAddingMember] = useState(false);
 
   const loadDetail = useCallback(
     async (showLoader = true) => {
@@ -67,6 +79,84 @@ export default function GroupDetailScreen() {
   useEffect(() => {
     loadDetail(true);
   }, [loadDetail]);
+
+  const loadRoster = useCallback(async () => {
+    try {
+      setRosterLoading(true);
+      const data = await fetchTeamRoster(groupId);
+      setRoster(data.roster);
+    } catch (error) {
+      console.error('Failed to load roster:', error);
+      setRoster([]);
+    } finally {
+      setRosterLoading(false);
+    }
+  }, [groupId]);
+
+  useEffect(() => {
+    if (manageVisible && detail?.isGroupCoach) {
+      void loadRoster();
+    }
+  }, [manageVisible, detail?.isGroupCoach, loadRoster]);
+
+  const handleAddPlayer = async () => {
+    const email = addEmail.trim();
+    const firstName = addFirstName.trim();
+    const lastName = addLastName.trim();
+    if (!email || !firstName || !lastName) {
+      Alert.alert('Check the form', 'Email, first name, and last name are required.');
+      return;
+    }
+
+    try {
+      setAddingMember(true);
+      const result = await addTeamMember(groupId, { email, firstName, lastName });
+      setAddEmail('');
+      setAddFirstName('');
+      setAddLastName('');
+      await loadRoster();
+      await loadDetail(false);
+
+      if (result.temporaryPassword) {
+        Alert.alert(
+          'Player added',
+          `Account created for ${firstName} ${lastName}.\n\nTemporary password: ${result.temporaryPassword}\n\nShare this securely so they can log in.`
+        );
+      } else {
+        Alert.alert('Player added', `${firstName} ${lastName} is now on the roster.`);
+      }
+    } catch (error: unknown) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        'Could not add player.';
+      Alert.alert('Error', message);
+    } finally {
+      setAddingMember(false);
+    }
+  };
+
+  const handleRemovePlayer = (member: TeamRosterMember) => {
+    const name = `${member.firstName} ${member.lastName}`.trim() || member.email;
+    Alert.alert('Remove player', `Remove ${name} from the team?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await removeTeamMember(groupId, String(member.userId));
+            await loadRoster();
+            await loadDetail(false);
+          } catch (error: unknown) {
+            const message =
+              (error as { response?: { data?: { message?: string } } })?.response?.data
+                ?.message ?? 'Could not remove player.';
+            Alert.alert('Error', message);
+          }
+        },
+      },
+    ]);
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -469,6 +559,7 @@ export default function GroupDetailScreen() {
 
       <Modal visible={manageVisible} animationType="slide" transparent onRequestClose={() => setManageVisible(false)}>
         <View style={styles.modalOverlay}>
+          <ScrollView contentContainerStyle={styles.modalScrollContent}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Manage Team</Text>
@@ -477,7 +568,83 @@ export default function GroupDetailScreen() {
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.modalSectionTitle}>Customize workout</Text>
+            <Text style={styles.modalSectionTitle}>Roster</Text>
+            <Text style={styles.modalHint}>
+              Add players by email or remove them from the team. New accounts receive a temporary
+              password.
+            </Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Email"
+              value={addEmail}
+              onChangeText={setAddEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+            />
+            <View style={styles.modalNameRow}>
+              <TextInput
+                style={[styles.modalInput, styles.modalInputHalf]}
+                placeholder="First name"
+                value={addFirstName}
+                onChangeText={setAddFirstName}
+                autoCapitalize="words"
+              />
+              <TextInput
+                style={[styles.modalInput, styles.modalInputHalf]}
+                placeholder="Last name"
+                value={addLastName}
+                onChangeText={setAddLastName}
+                autoCapitalize="words"
+              />
+            </View>
+            <TouchableOpacity
+              style={styles.modalPrimaryButton}
+              onPress={handleAddPlayer}
+              disabled={addingMember}
+            >
+              {addingMember ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.modalPrimaryButtonText}>Add Player</Text>
+              )}
+            </TouchableOpacity>
+
+            {rosterLoading ? (
+              <ActivityIndicator color="#667eea" style={{ marginVertical: 16 }} />
+            ) : (
+              roster
+                .filter((entry) => entry.role !== 'coach')
+                .map((entry) => {
+                  const name =
+                    `${entry.firstName} ${entry.lastName}`.trim() || entry.email;
+                  const isSelf = String(entry.userId) === user?._id;
+                  return (
+                    <View key={String(entry.userId)} style={styles.rosterRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.rosterName}>{name}</Text>
+                        <Text style={styles.rosterRole}>
+                          {entry.roleLabel}
+                          {entry.performanceGrade > 0
+                            ? ` · Grade ${entry.performanceGrade.toFixed(0)}`
+                            : ''}
+                        </Text>
+                      </View>
+                      {!isSelf ? (
+                        <TouchableOpacity
+                          onPress={() => handleRemovePlayer(entry)}
+                          accessibilityLabel={`Remove ${name}`}
+                        >
+                          <Text style={styles.rosterRemove}>Remove</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <Text style={styles.rosterYou}>You</Text>
+                      )}
+                    </View>
+                  );
+                })
+            )}
+
+            <Text style={[styles.modalSectionTitle, { marginTop: 20 }]}>Customize workout</Text>
             <Text style={styles.modalHint}>
               Enter a KingVision workout ID to clone and assign to your team.
             </Text>
@@ -526,6 +693,7 @@ export default function GroupDetailScreen() {
                 </TouchableOpacity>
               ))}
           </View>
+          </ScrollView>
         </View>
       </Modal>
     </>
@@ -892,6 +1060,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'flex-end',
   },
+  modalScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'flex-end',
+  },
   modalCard: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
@@ -930,6 +1102,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginBottom: 12,
   },
+  modalNameRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  modalInputHalf: {
+    flex: 1,
+  },
   modalPrimaryButton: {
     backgroundColor: '#667eea',
     borderRadius: 10,
@@ -963,6 +1142,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#667eea',
+  },
+  rosterRemove: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#ef4444',
   },
   rosterYou: {
     fontSize: 13,

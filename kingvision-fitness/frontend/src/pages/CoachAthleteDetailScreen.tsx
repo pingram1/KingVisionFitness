@@ -1,17 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 
-import { fetchCoachAthleteDetail } from '../api/coachAthlete';
+import { fetchCoachAthleteDetail, saveCoachAthleteStats } from '../api/coachAthlete';
+import { previewAthleteStats } from '../api/athleteStats';
 import type { GroupsStackParamList } from './GroupsScreen';
 import type {
   AthleteStatHistoryEntry,
@@ -23,9 +27,63 @@ import {
   formatStatValue,
   isStatImprovement,
 } from '../types/coachAthlete';
-import type { CategoryScore, PerformanceBreakdown, PerformanceTier } from '../types/athleteStats';
+import type {
+  AthleteStatsFormState,
+  AthleteStatsPayload,
+  CategoryScore,
+  PerformanceBreakdown,
+  PerformanceTier,
+} from '../types/athleteStats';
+import { EMPTY_ATHLETE_FORM } from '../types/athleteStats';
 
 type CoachAthleteRoute = RouteProp<GroupsStackParamList, 'CoachAthleteDetail'>;
+
+type StatField = keyof AthleteStatsFormState;
+
+const STAT_FIELDS: Array<{ key: StatField; label: string; unit: string; decimal?: boolean }> = [
+  { key: 'bodyWeight', label: 'Body Weight', unit: 'lbs' },
+  { key: 'height', label: 'Height', unit: 'in' },
+  { key: 'squatMax', label: 'Squat 1RM', unit: 'lbs' },
+  { key: 'benchMax', label: 'Bench 1RM', unit: 'lbs' },
+  { key: 'deadliftMax', label: 'Deadlift 1RM', unit: 'lbs' },
+  { key: 'pushUpCount', label: 'Push-Ups', unit: 'reps' },
+  { key: 'sitUpCount', label: 'Sit-Ups', unit: 'reps' },
+  { key: 'fortyYardDash', label: '40-Yard Dash', unit: 'sec', decimal: true },
+];
+
+function statsToForm(stats: CoachAthleteDetail['stats']): AthleteStatsFormState {
+  return {
+    bodyWeight: stats.bodyWeight != null ? String(stats.bodyWeight) : '',
+    height: stats.height != null ? String(stats.height) : '',
+    squatMax: stats.squatMax != null ? String(stats.squatMax) : '',
+    benchMax: stats.benchMax != null ? String(stats.benchMax) : '',
+    deadliftMax: stats.deadliftMax != null ? String(stats.deadliftMax) : '',
+    pushUpCount: stats.pushUpCount != null ? String(stats.pushUpCount) : '',
+    sitUpCount: stats.sitUpCount != null ? String(stats.sitUpCount) : '',
+    fortyYardDash: stats.fortyYardDash != null ? String(stats.fortyYardDash) : '',
+  };
+}
+
+function formToPayload(form: AthleteStatsFormState): AthleteStatsPayload {
+  const out: AthleteStatsPayload = {};
+  (Object.keys(form) as StatField[]).forEach((key) => {
+    const trimmed = form[key].trim();
+    if (!trimmed) return;
+    const num = Number(trimmed);
+    if (Number.isFinite(num) && num > 0) out[key] = num;
+  });
+  return out;
+}
+
+function parseApiError(error: unknown, fallback: string): string {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const data = (error as { response?: { data?: { message?: string; errors?: string[] } } })
+      .response?.data;
+    if (Array.isArray(data?.errors) && data.errors.length > 0) return data.errors.join('. ');
+    if (typeof data?.message === 'string' && data.message) return data.message;
+  }
+  return fallback;
+}
 
 const TIER_COLORS: Record<PerformanceTier, { bg: string; fg: string; label: string }> = {
   untrained: { bg: '#ECEFF1', fg: '#546E7A', label: 'Untrained' },
@@ -130,6 +188,10 @@ export default function CoachAthleteDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<AthleteStatsFormState>(EMPTY_ATHLETE_FORM);
+  const [saving, setSaving] = useState(false);
+  const [previewGrade, setPreviewGrade] = useState<number | null>(null);
 
   const load = useCallback(
     async (showLoader = true) => {
@@ -138,6 +200,7 @@ export default function CoachAthleteDetailScreen() {
         setError(null);
         const data = await fetchCoachAthleteDetail(groupId, userId);
         setDetail(data);
+        setForm(statsToForm(data.stats));
       } catch (err) {
         console.error('Failed to load coach athlete detail', err);
         setError('Could not load athlete details. Pull to refresh.');
@@ -166,6 +229,43 @@ export default function CoachAthleteDetailScreen() {
     [detail]
   );
 
+  useEffect(() => {
+    if (!editing) {
+      setPreviewGrade(null);
+      return;
+    }
+    const payload = formToPayload(form);
+    if (Object.keys(payload).length === 0) {
+      setPreviewGrade(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      void previewAthleteStats(payload)
+        .then((result) => setPreviewGrade(result.overall))
+        .catch(() => setPreviewGrade(null));
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [editing, form]);
+
+  const handleSaveStats = async () => {
+    const payload = formToPayload(form);
+    if (Object.keys(payload).length === 0) {
+      Alert.alert('Check the form', 'Enter at least one measurable before saving.');
+      return;
+    }
+    try {
+      setSaving(true);
+      await saveCoachAthleteStats(groupId, userId, payload);
+      setEditing(false);
+      await load(false);
+      Alert.alert('Saved', 'Combine stats updated and performance grade recalculated.');
+    } catch (err) {
+      Alert.alert('Save failed', parseApiError(err, 'Could not update athlete stats.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const athleteName = detail
     ? `${detail.athlete.firstName} ${detail.athlete.lastName}`.trim() || 'Athlete'
     : 'Athlete';
@@ -190,7 +290,7 @@ export default function CoachAthleteDetailScreen() {
 
   if (!detail) return null;
 
-  const grade = detail.stats.performanceGrade ?? 0;
+  const grade = previewGrade ?? detail.stats.performanceGrade ?? 0;
   const color = gradeColor(grade);
 
   return (
@@ -213,6 +313,20 @@ export default function CoachAthleteDetailScreen() {
               <Text style={styles.rolePillText}>{detail.athlete.roleLabel}</Text>
             </View>
           </View>
+          <TouchableOpacity
+            style={styles.editToggle}
+            onPress={() => {
+              if (editing) {
+                setForm(statsToForm(detail.stats));
+                setEditing(false);
+              } else {
+                setEditing(true);
+              }
+            }}
+          >
+            <Ionicons name={editing ? 'close' : 'create-outline'} size={20} color="#667eea" />
+            <Text style={styles.editToggleText}>{editing ? 'Cancel' : 'Edit'}</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={[styles.gradeCard, { borderColor: color }]}>
@@ -221,6 +335,9 @@ export default function CoachAthleteDetailScreen() {
             <Text style={[styles.gradeValue, { color }]}>{Math.round(grade)}</Text>
             <Text style={styles.gradeMax}>/ 100</Text>
           </View>
+          {editing && previewGrade != null ? (
+            <Text style={styles.previewHint}>Live preview from entered measurables</Text>
+          ) : null}
           {breakdown ? (
             <View style={styles.weightsRow}>
               <Text style={styles.weightChip}>
@@ -236,6 +353,46 @@ export default function CoachAthleteDetailScreen() {
           ) : null}
         </View>
       </View>
+
+      {editing ? (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Enter Measurables</Text>
+          <Text style={styles.cardSubtitle}>
+            Log combine stats for this athlete. Partial updates are supported — only filled fields
+            are saved.
+          </Text>
+          {STAT_FIELDS.map(({ key, label, unit, decimal }) => (
+            <View key={key} style={styles.formRow}>
+              <Text style={styles.formLabel}>{label}</Text>
+              <View style={styles.formInputWrap}>
+                <TextInput
+                  style={styles.formInput}
+                  value={form[key]}
+                  onChangeText={(value) => setForm((prev) => ({ ...prev, [key]: value }))}
+                  placeholder="—"
+                  placeholderTextColor="#bbb"
+                  keyboardType={decimal ? 'decimal-pad' : 'number-pad'}
+                />
+                <Text style={styles.formUnit}>{unit}</Text>
+              </View>
+            </View>
+          ))}
+          <TouchableOpacity
+            style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+            onPress={handleSaveStats}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="save-outline" size={18} color="#fff" />
+                <Text style={styles.saveButtonText}>Save & Recalculate Grade</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Category Breakdown</Text>
@@ -267,7 +424,7 @@ export default function CoachAthleteDetailScreen() {
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Progression History</Text>
         <Text style={styles.cardSubtitle}>
-          Every time this athlete updates their combine stats, changes are logged here.
+          Every time combine stats are updated, changes are logged here.
         </Text>
         {detail.statHistory.length > 0 ? (
           detail.statHistory.map((entry, index) => (
@@ -278,7 +435,7 @@ export default function CoachAthleteDetailScreen() {
             <Ionicons name="time-outline" size={36} color="#ccc" />
             <Text style={styles.emptyHistoryText}>No stat updates recorded yet.</Text>
             <Text style={styles.emptyHistorySub}>
-              When the athlete saves their Combine Stats, progression will appear here.
+              Tap Edit above to enter combine measurables for this athlete.
             </Text>
           </View>
         )}
@@ -356,6 +513,67 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#667eea',
+  },
+  editToggle: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  editToggleText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#667eea',
+  },
+  previewHint: {
+    fontSize: 11,
+    color: '#667eea',
+    marginTop: 6,
+    fontWeight: '600',
+  },
+  formRow: {
+    marginBottom: 12,
+  },
+  formLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 6,
+  },
+  formInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f7f7fb',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingHorizontal: 12,
+  },
+  formInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#222',
+    paddingVertical: 10,
+  },
+  formUnit: {
+    fontSize: 12,
+    color: '#888',
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  saveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#667eea',
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginTop: 8,
+  },
+  saveButtonDisabled: { opacity: 0.7 },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
   gradeCard: {
     borderWidth: 2,
