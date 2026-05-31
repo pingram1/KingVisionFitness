@@ -140,10 +140,15 @@ function LockedCustomSection({ onUpgrade }: { onUpgrade: () => void }) {
         <Ionicons name="lock-closed" size={28} color="#667eea" />
         <Text style={styles.lockedTitle}>Custom Macro Plan</Text>
         <Text style={styles.lockedBody}>
-          Get a personalized macro target and daily meal breakdown from your trainer.
+          Personalized macro targets and daily meals from your trainer are included with Active
+          Client membership.
         </Text>
+        <View style={styles.paymentsBanner}>
+          <Ionicons name="card-outline" size={14} color="#92400e" />
+          <Text style={styles.paymentsBannerText}>Secure payments launching soon via Stripe</Text>
+        </View>
         <TouchableOpacity style={styles.upgradeButton} onPress={onUpgrade}>
-          <Text style={styles.upgradeButtonText}>Upgrade to Unlock</Text>
+          <Text style={styles.upgradeButtonText}>View Membership Options</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -234,10 +239,10 @@ export default function NutritionScreen() {
           ) : (
             <View style={styles.emptyCustom}>
               <Ionicons name="restaurant-outline" size={40} color="#ccc" />
-              <Text style={styles.emptyCustomTitle}>Plan coming soon</Text>
+              <Text style={styles.emptyCustomTitle}>Your plan is being prepared</Text>
               <Text style={styles.emptyCustomBody}>
-                Your trainer is currently building your custom meal plan. Check back here
-                soon for your macro targets and daily meals.
+                Your trainer is building your custom meal plan. You will see macro targets and
+                daily meals here as soon as it is published to your account.
               </Text>
             </View>
           )}
@@ -468,6 +473,24 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 14,
+  },
+  paymentsBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  paymentsBannerText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#92400e',
+    flex: 1,
   },
   guideCard: {
     flexDirection: 'row',

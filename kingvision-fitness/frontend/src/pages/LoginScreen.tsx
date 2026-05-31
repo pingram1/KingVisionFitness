@@ -100,7 +100,7 @@ export default function LoginScreen() {
   };
 
   const handleForgotPassword = () => {
-    Alert.alert('Forgot Password', 'Reset link via email — feature coming soon.');
+    navigation.navigate('ForgotPassword' as never);
   };
 
   return (

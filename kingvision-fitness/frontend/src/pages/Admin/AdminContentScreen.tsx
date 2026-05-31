@@ -605,7 +605,7 @@ export default function AdminContentScreen() {
         </Text>
         <Text style={styles.cardSubtitle}>
           {contentTab === 'workouts'
-            ? 'Content appears in the client Workouts tab for Basic tier users.'
+            ? 'Content appears in the client Workouts tab for Basic tier users. Edits to published workouts update the live template without changing past session history.'
             : 'Instructional video linked for Basic tier tutoring library.'}
         </Text>
 

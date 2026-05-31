@@ -7,6 +7,8 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 
 import LoginScreen from './pages/LoginScreen';
 import RegisterScreen from './pages/RegisterScreen';
+import ForgotPasswordScreen from './pages/ForgotPasswordScreen';
+import ResetPasswordScreen from './pages/ResetPasswordScreen';
 import MainTabNavigator from './navigation/MainTabNavigator';
 import AdminTabNavigator from './navigation/AdminTabNavigator';
 
@@ -22,6 +24,8 @@ function AuthStack() {
     >
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
+      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+      <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
     </Stack.Navigator>
   );
 }

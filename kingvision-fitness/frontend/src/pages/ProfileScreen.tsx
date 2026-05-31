@@ -196,6 +196,25 @@ export default function ProfileScreen() {
           <Text style={[styles.tierBadgeText, { color: tier.color }]}>{tier.label}</Text>
         </View>
         <Text style={styles.tierDescription}>{tier.description}</Text>
+        <TouchableOpacity
+          style={styles.editProfileButton}
+          onPress={() =>
+            navigation.navigate('EditProfile', {
+              initial: {
+                firstName: profile?.profile?.firstName ?? '',
+                lastName: profile?.profile?.lastName ?? '',
+                phone: profile?.profile?.phone,
+                bio: profile?.profile?.bio,
+                fitnessLevel: profile?.profile?.fitnessLevel ?? 'beginner',
+              },
+            })
+          }
+          accessibilityRole="button"
+          accessibilityLabel="Edit profile"
+        >
+          <Ionicons name="create-outline" size={16} color="#667eea" />
+          <Text style={styles.editProfileButtonText}>Edit Profile</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.metricsRow}>
@@ -234,7 +253,7 @@ export default function ProfileScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.upgradeTitle}>Unlock Active Client</Text>
             <Text style={styles.upgradeBody}>
-              Get custom workouts, meal plans, and direct trainer access.
+              Custom workouts, meal plans, and 1-on-1 booking. Payments launching soon via Stripe.
             </Text>
           </View>
           <TouchableOpacity
@@ -419,6 +438,23 @@ const styles = StyleSheet.create({
     color: '#888',
     marginTop: 8,
     textAlign: 'center',
+  },
+  editProfileButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#667eea',
+    backgroundColor: '#667eea12',
+  },
+  editProfileButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#667eea',
   },
   metricsRow: {
     flexDirection: 'row',

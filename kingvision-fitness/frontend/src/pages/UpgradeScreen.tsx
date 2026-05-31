@@ -82,6 +82,8 @@ function parseApiError(error: unknown, fallback: string): string {
   return fallback;
 }
 
+const DEV_BYPASS_ENABLED = __DEV__ && Boolean(process.env.EXPO_PUBLIC_DEV_BYPASS_SECRET);
+
 export default function UpgradeScreen() {
   const navigation = useNavigation();
   const { user, refreshProfile } = useAuth();
@@ -128,6 +130,17 @@ export default function UpgradeScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <View style={styles.paymentsBanner}>
+        <Ionicons name="time-outline" size={18} color="#92400e" />
+        <View style={styles.paymentsBannerBody}>
+          <Text style={styles.paymentsBannerTitle}>Payments launching soon</Text>
+          <Text style={styles.paymentsBannerText}>
+            Secure Stripe checkout is being finalized. Membership pricing below reflects what will
+            be available at launch.
+          </Text>
+        </View>
+      </View>
+
       <View style={styles.hero}>
         <Ionicons name="diamond" size={32} color="#FFD54F" />
         <Text style={styles.heroTitle}>Upgrade Your Membership</Text>
@@ -180,26 +193,27 @@ export default function UpgradeScreen() {
                 <Ionicons name="ribbon" size={14} color="#555" />
                 <Text style={styles.currentPillText}>Current Plan</Text>
               </View>
-            ) : isHero ? (
+            ) : isHero && DEV_BYPASS_ENABLED ? (
               <TouchableOpacity
                 style={[styles.upgradeButton, { backgroundColor: tier.accent }]}
                 onPress={handleDevUpgrade}
                 disabled={upgrading}
                 accessibilityRole="button"
-                accessibilityLabel="Upgrade to Active Client"
+                accessibilityLabel="Upgrade to Active Client (development)"
               >
                 {upgrading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
                   <>
                     <Ionicons name="flash" size={16} color="#fff" />
-                    <Text style={styles.upgradeButtonText}>Upgrade Now</Text>
+                    <Text style={styles.upgradeButtonText}>Dev Upgrade (Active Client)</Text>
                   </>
                 )}
               </TouchableOpacity>
             ) : (
               <View style={styles.comingSoon}>
-                <Text style={styles.comingSoonText}>Coming soon</Text>
+                <Ionicons name="card-outline" size={14} color="#92400e" />
+                <Text style={styles.comingSoonText}>Payments launching soon</Text>
               </View>
             )}
           </View>
@@ -209,7 +223,9 @@ export default function UpgradeScreen() {
       <View style={styles.footerNote}>
         <Ionicons name="information-circle-outline" size={16} color="#888" />
         <Text style={styles.footerNoteText}>
-          Stripe Checkout is being wired up. In development, the Upgrade Now button uses a temporary bypass to grant Active Client access instantly.
+          {DEV_BYPASS_ENABLED
+            ? 'Development mode: the Dev Upgrade button grants Active Client access for testing. Production builds will use Stripe checkout once keys are configured.'
+            : 'Online payments are not live yet. Contact KingVision Fitness to request early access or tier changes until Stripe checkout launches.'}
         </Text>
       </View>
     </ScrollView>
@@ -224,6 +240,31 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     paddingBottom: 40,
+  },
+  paymentsBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 4,
+  },
+  paymentsBannerBody: {
+    flex: 1,
+  },
+  paymentsBannerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#92400e',
+    marginBottom: 4,
+  },
+  paymentsBannerText: {
+    fontSize: 12,
+    color: '#78350f',
+    lineHeight: 17,
   },
   hero: {
     alignItems: 'center',
@@ -357,16 +398,19 @@ const styles = StyleSheet.create({
   comingSoon: {
     marginTop: 16,
     alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#fafafa',
+    paddingVertical: 8,
+    backgroundColor: '#fffbeb',
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#ececec',
+    borderColor: '#fcd34d',
   },
   comingSoonText: {
     fontSize: 12,
-    color: '#999',
+    color: '#92400e',
     fontWeight: '600',
   },
   footerNote: {

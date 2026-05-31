@@ -576,6 +576,9 @@ export default function ActiveWorkoutPlayerScreen() {
     >
       {/* ── Top: timer + exercise progress ── */}
       <View style={styles.topSection}>
+        <Text style={styles.workoutTitle} numberOfLines={2}>
+          {workout.title}
+        </Text>
         <View style={styles.timerRow}>
           <View style={styles.timerLeft}>
             <Ionicons name="time-outline" size={22} color={BRAND} />
@@ -599,7 +602,7 @@ export default function ActiveWorkoutPlayerScreen() {
             {metrics.totalExerciseCount}
           </Text>
           <Text style={styles.progressMeta}>
-            {metrics.completedExerciseCount} complete
+            {metrics.completedSetCount}/{metrics.totalSetCount} sets
           </Text>
         </View>
         <View style={styles.progressBarTrack} accessibilityRole="progressbar">
@@ -673,7 +676,9 @@ export default function ActiveWorkoutPlayerScreen() {
           ) : (
             <>
               <Ionicons name="checkmark-done" size={22} color="#fff" />
-              <Text style={styles.finishButtonText}>Finish Workout</Text>
+              <Text style={styles.finishButtonText}>
+                {metrics.completedSetCount === 0 ? 'Finish Workout' : 'Finish & Log Workout'}
+              </Text>
             </>
           )}
         </TouchableOpacity>
@@ -725,6 +730,12 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#e0e0e0',
+  },
+  workoutTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 8,
   },
   timerRow: {
     flexDirection: 'row',

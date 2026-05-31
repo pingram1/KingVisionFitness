@@ -28,6 +28,9 @@ export interface UserProfile {
     firstName: string;
     lastName: string;
     avatar?: string;
+    phone?: string | null;
+    bio?: string;
+    fitnessLevel?: 'beginner' | 'intermediate' | 'advanced';
   };
   subscription: {
     tier: string;

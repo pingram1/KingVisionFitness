@@ -125,20 +125,83 @@ router.get('/profile', auth, async (req: any, res: any) => {
 });
 
 // @route   PUT /api/users/profile
-// @desc    Update user profile
+// @desc    Update user profile (name, contact, bio, fitness level)
 // @access  Private
 router.put('/profile', auth, async (req: any, res: any) => {
   try {
-    // TODO: Implement profile update
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const { firstName, lastName, phone, bio, fitnessLevel } = req.body ?? {};
+    const errors: string[] = [];
+
+    if (firstName !== undefined) {
+      const value = String(firstName).trim();
+      if (!value) errors.push('First name cannot be empty');
+      else if (value.length > 50) errors.push('First name cannot exceed 50 characters');
+      else user.profile.firstName = value;
+    }
+
+    if (lastName !== undefined) {
+      const value = String(lastName).trim();
+      if (!value) errors.push('Last name cannot be empty');
+      else if (value.length > 50) errors.push('Last name cannot exceed 50 characters');
+      else user.profile.lastName = value;
+    }
+
+    if (phone !== undefined) {
+      const cleared = phone === null || phone === '';
+      if (cleared) {
+        user.profile.phone = undefined;
+      } else {
+        const value = String(phone).trim();
+        if (value.length > 20) errors.push('Phone cannot exceed 20 characters');
+        else user.profile.phone = value;
+      }
+    }
+
+    if (bio !== undefined) {
+      const value = bio === null ? '' : String(bio).trim();
+      if (value.length > 500) errors.push('Bio cannot exceed 500 characters');
+      else user.profile.bio = value;
+    }
+
+    if (fitnessLevel !== undefined) {
+      const allowed = ['beginner', 'intermediate', 'advanced'];
+      if (!allowed.includes(fitnessLevel)) {
+        errors.push('fitnessLevel must be beginner, intermediate, or advanced');
+      } else {
+        user.profile.fitnessLevel = fitnessLevel;
+      }
+    }
+
+    if (errors.length > 0) {
+      return res.status(400).json({ success: false, message: errors.join('. ') });
+    }
+
+    await user.save();
+
     res.json({
       success: true,
-      message: 'Update profile endpoint',
-      data: req.body
+      message: 'Profile updated',
+      data: user,
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Profile validation failed',
+        errors: Object.values(error.errors).map((e: any) => ({
+          field: e.path,
+          message: e.message,
+        })),
+      });
+    }
     res.status(500).json({
       success: false,
-      message: 'Error updating profile'
+      message: 'Error updating profile',
     });
   }
 });
