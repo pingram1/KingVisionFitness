@@ -25,7 +25,7 @@ interface User {
   /** Product tier from profile/login — used for feature gating in the UI. */
   subscriptionTier?: 'BASIC' | 'SPECIFIED' | 'ACTIVE_CLIENT';
   /** Present when populated by dashboard/profile APIs */
-  completedWorkouts?: Array<{ duration?: number; [key: string]: unknown }>;
+  completedWorkouts?: { duration?: number; [key: string]: unknown }[];
 }
 
 /** Human-readable message from axios errors (validation array, message, or network). */
@@ -104,7 +104,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const response = await api.get('/users/profile');
           setUser(response.data.data);
-        } catch (error) {
+        } catch {
           // Token is invalid, remove it
           await authTokenStorage.clearTokens();
           setUser(null);

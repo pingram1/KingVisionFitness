@@ -13,6 +13,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_ON_NODE24: true
+
 jobs:
   frontend:
     runs-on: ubuntu-latest

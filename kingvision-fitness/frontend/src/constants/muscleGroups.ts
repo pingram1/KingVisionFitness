@@ -30,7 +30,7 @@ export const MUSCLE_GROUP_ALIASES: Record<string, readonly MuscleGroup[]> = {
   core: ['abs', 'obliques', 'lower_back'],
 };
 
-export const MUSCLE_GROUP_PRESETS: Array<{ label: string; groups: MuscleGroup[] }> = [
+export const MUSCLE_GROUP_PRESETS: { label: string; groups: MuscleGroup[] }[] = [
   { label: 'Full Body', groups: ['full_body'] },
   { label: 'Upper Body', groups: [...MUSCLE_GROUP_ALIASES.upper_body] },
   { label: 'Lower Body', groups: [...MUSCLE_GROUP_ALIASES.lower_body] },
