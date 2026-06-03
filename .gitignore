@@ -7,6 +7,11 @@ yarn-debug.log*
 # macOS / local clutter
 .DS_Store
 
+# Local Python venvs (e.g. docs PDF generator)
+.pdf-venv/
+.venv/
+venv/
+
 # Personal / stock media at repo root (do not commit by default)
 /*.HEIC
 /*.heic
