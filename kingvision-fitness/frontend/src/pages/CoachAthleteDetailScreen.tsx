@@ -40,7 +40,7 @@ type CoachAthleteRoute = RouteProp<GroupsStackParamList, 'CoachAthleteDetail'>;
 
 type StatField = keyof AthleteStatsFormState;
 
-const STAT_FIELDS: Array<{ key: StatField; label: string; unit: string; decimal?: boolean }> = [
+const STAT_FIELDS: { key: StatField; label: string; unit: string; decimal?: boolean }[] = [
   { key: 'bodyWeight', label: 'Body Weight', unit: 'lbs' },
   { key: 'height', label: 'Height', unit: 'in' },
   { key: 'squatMax', label: 'Squat 1RM', unit: 'lbs' },

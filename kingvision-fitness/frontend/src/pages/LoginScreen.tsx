@@ -42,7 +42,7 @@ export default function LoginScreen() {
         setSuccess(msg);
         navigation.setParams({ message: undefined } as never);
       }
-    }, [route.params?.message, navigation, route.params])
+    }, [navigation, route.params])
   );
 
   const handleChangeEmail = useCallback(

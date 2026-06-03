@@ -20,7 +20,7 @@ import { useFocusRefresh } from '../hooks/useFocusRefresh';
 
 type MeasurementField = keyof BodyMeasurements;
 
-const MEASUREMENT_FIELDS: Array<{ key: MeasurementField; label: string }> = [
+const MEASUREMENT_FIELDS: { key: MeasurementField; label: string }[] = [
   { key: 'chest', label: 'Chest' },
   { key: 'waist', label: 'Waist' },
   { key: 'hips', label: 'Hips' },

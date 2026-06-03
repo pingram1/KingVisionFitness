@@ -68,7 +68,7 @@ export interface Workout {
   tags?: string[];
   isPublic?: boolean;
   isCustom?: boolean;
-  assignedTo?: Array<string | AssignedClientSummary>;
+  assignedTo?: (string | AssignedClientSummary)[];
   weekNumber?: number;
   dayOfWeek?: number;
   completionCount?: number;

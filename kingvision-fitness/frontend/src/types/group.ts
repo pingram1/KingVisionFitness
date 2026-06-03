@@ -115,11 +115,11 @@ export interface GroupDetail extends GroupSummary {
   address: string | null;
   dailyWorkout: GroupDailyWorkout | null;
   feed: GroupFeedPost[];
-  announcements: Array<{
+  announcements: {
     title: string;
     content: string;
     createdAt: string;
-  }>;
+  }[];
 }
 
 export const GROUP_TYPE_ICONS: Record<GroupType, keyof typeof import('@expo/vector-icons').Ionicons.glyphMap> = {

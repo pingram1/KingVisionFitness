@@ -366,7 +366,7 @@ export default function AthleteCombineScreen() {
         if (seq === previewSeqRef.current) {
           setLivePreview(breakdown);
         }
-      } catch (err) {
+      } catch {
         // Preview errors are non-fatal — just clear the live view.
         if (seq === previewSeqRef.current) setLivePreview(savedBreakdown);
       } finally {
