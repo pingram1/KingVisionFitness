@@ -1,8 +1,45 @@
-import { Expo, type ExpoPushMessage } from 'expo-server-sdk';
 import { format } from 'date-fns';
 import User from '../models/User';
 
-const expo = new Expo();
+type ExpoPushMessage = {
+  to: string;
+  sound?: 'default' | null;
+  title?: string;
+  body?: string;
+  data?: Record<string, unknown>;
+};
+
+type ExpoClient = {
+  chunkPushNotifications: (messages: ExpoPushMessage[]) => ExpoPushMessage[][];
+  sendPushNotificationsAsync: (
+    messages: ExpoPushMessage[]
+  ) => Promise<Array<{ status: string; message?: string; details?: unknown }>>;
+};
+
+type ExpoNamespace = {
+  Expo: {
+    new (): ExpoClient;
+    isExpoPushToken: (token: string) => boolean;
+  };
+};
+
+let expoModulePromise: Promise<ExpoNamespace> | null = null;
+let expoClient: ExpoClient | null = null;
+
+async function loadExpo(): Promise<ExpoNamespace> {
+  if (!expoModulePromise) {
+    expoModulePromise = import('expo-server-sdk') as Promise<ExpoNamespace>;
+  }
+  return expoModulePromise;
+}
+
+async function getExpoClient(): Promise<ExpoClient> {
+  if (!expoClient) {
+    const { Expo } = await loadExpo();
+    expoClient = new Expo();
+  }
+  return expoClient;
+}
 
 /**
  * Send a single Expo push notification. Invalid tokens are logged and skipped
@@ -14,6 +51,7 @@ export async function sendExpoPushNotification(
   body: string,
   data?: Record<string, unknown>
 ): Promise<void> {
+  const { Expo } = await loadExpo();
   if (!Expo.isExpoPushToken(pushToken)) {
     console.warn('[push] Skipping invalid Expo push token');
     return;
@@ -27,6 +65,7 @@ export async function sendExpoPushNotification(
     data,
   };
 
+  const expo = await getExpoClient();
   const chunks = expo.chunkPushNotifications([message]);
   for (const chunk of chunks) {
     const tickets = await expo.sendPushNotificationsAsync(chunk);
