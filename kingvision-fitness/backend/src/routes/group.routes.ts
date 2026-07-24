@@ -609,7 +609,7 @@ router.post(
           password: temporaryPassword,
           role: 'CLIENT',
           subscriptionTier: 'BASIC',
-          emailVerified: true,
+          emailVerified: false,
           profile: { firstName, lastName },
         });
         await user.save();
@@ -632,7 +632,6 @@ router.post(
               lastName: user.profile?.lastName ?? lastName,
               role: 'coach',
             },
-            temporaryPassword: null,
             createdUser: false,
           },
         });
@@ -648,8 +647,15 @@ router.post(
 
       await syncUserGroupMembership(user, gid, 'coach');
 
+      if (user.role === 'CLIENT') {
+        user.role = 'TRAINER';
+        user.trainer = user.trainer ?? { isTrainer: true, clientIds: [] };
+        user.trainer.isTrainer = true;
+        await user.save();
+      }
+
       const message = createdUser
-        ? `Coach account created and assigned. Share the temporary password with ${firstName}.`
+        ? `Coach account created and assigned. Ask ${firstName} to use "Forgot password" on login to set their credentials.`
         : `Coach assigned successfully. ${user.profile?.firstName ?? firstName} can log in with their existing credentials.`;
 
       return res.status(createdUser ? 201 : 200).json({
@@ -663,7 +669,6 @@ router.post(
             lastName: user.profile?.lastName ?? lastName,
             role: 'coach',
           },
-          temporaryPassword,
           createdUser,
         },
       });
@@ -1033,7 +1038,7 @@ router.post('/:id/members', auth, async (req: any, res: any) => {
         password: temporaryPassword,
         role: 'CLIENT',
         subscriptionTier: 'BASIC',
-        emailVerified: true,
+          emailVerified: false,
         profile: { firstName, lastName },
       });
       await user.save();
@@ -1062,7 +1067,6 @@ router.post('/:id/members', auth, async (req: any, res: any) => {
             lastName: user.profile?.lastName ?? lastName,
             role: existingMembership.role,
           },
-          temporaryPassword: null,
           createdUser: false,
         },
       });
@@ -1072,7 +1076,7 @@ router.post('/:id/members', auth, async (req: any, res: any) => {
     await syncUserGroupMembership(user, gid, 'athlete');
 
     const message = createdUser
-      ? `Player account created and added. Share the temporary password with ${firstName}.`
+      ? `Player account created and added. Ask ${firstName} to use "Forgot password" on login to set their credentials.`
       : `${user.profile?.firstName ?? firstName} has been added to the team.`;
 
     return res.status(createdUser ? 201 : 200).json({
@@ -1086,7 +1090,6 @@ router.post('/:id/members', auth, async (req: any, res: any) => {
           lastName: user.profile?.lastName ?? lastName,
           role: 'athlete',
         },
-        temporaryPassword,
         createdUser,
       },
     });
@@ -1443,9 +1446,9 @@ router.get('/', async (_req: any, res: any) => {
 });
 
 // @route   POST /api/groups
-// @desc    Create team / bootcamp (coach only flow — stub)
-// @access  Private
-router.post('/', auth, async (req: any, res: any) => {
+// @desc    Create team / bootcamp — platform coaches and admins only
+// @access  Private — SUPER_ADMIN | TRAINER
+router.post('/', auth, authorizeRoles('SUPER_ADMIN', 'TRAINER'), async (req: any, res: any) => {
   try {
     const { name, description, groupType = 'athletic_team', address, location } = req.body;
     if (!name || !description) {
@@ -1530,9 +1533,8 @@ router.post('/:id/join', auth, async (req: any, res: any) => {
 
     const user = await User.findById(req.user._id);
     const gid = groupObjectId(group._id);
-    if (user && !user.groups.some((id) => id.toString() === gid.toString())) {
-      user.groups.push(gid as never);
-      await user.save();
+    if (user) {
+      await syncUserGroupMembership(user, gid, defaultRole);
     }
 
     res.json({

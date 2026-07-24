@@ -26,6 +26,21 @@ export type UserRole = 'SUPER_ADMIN' | 'TRAINER' | 'CLIENT';
 
 export const USER_ROLES: readonly UserRole[] = ['SUPER_ADMIN', 'TRAINER', 'CLIENT'] as const;
 
+/**
+ * Individual elite-track designation for private clients training under KingVision.
+ * Organizational team athletes use group roles instead; `'none'` is the default.
+ * Modifiable by SUPER_ADMIN only.
+ */
+export type AthleteDesignation = 'none' | 'pro' | 'collegiate' | 'semi-pro' | 'independent_hs';
+
+export const ATHLETE_DESIGNATIONS: readonly AthleteDesignation[] = [
+  'none',
+  'pro',
+  'collegiate',
+  'semi-pro',
+  'independent_hs',
+] as const;
+
 export interface IUserMlProfile {
   /** Anonymized / bucketed metabolic heuristic for recommenders */
   metabolicTypeTag?: string | null;
@@ -86,6 +101,20 @@ export interface IAthleteStats {
   lastUpdatedAt?: Date;
 }
 
+/** Mainstream wellness metrics — separate from team combine / performance grade. */
+export interface IEverydayFitnessStats {
+  pushUpsMax?: number;
+  pullUpsMax?: number;
+  sitUpsMax?: number;
+  curlsWeight?: number;
+  curlsReps?: number;
+  plankSeconds?: number;
+  burpeesCount?: number;
+  /** Cached 0–100 wellness score. Recomputed whenever stats change. */
+  everydayFitnessScore?: number;
+  lastUpdated?: Date;
+}
+
 // User interface
 export interface IUser extends Document {
   email: string;
@@ -129,6 +158,15 @@ export interface IUser extends Document {
   }>;
   /** Combine-style measurements driving the team performance leaderboard. */
   athleteStats?: IAthleteStats;
+  /**
+   * Individual elite-track designation (pro, collegiate, semi-pro, independent HS).
+   * Grants combine access without a team role. SUPER_ADMIN only.
+   */
+  athleteDesignation: AthleteDesignation;
+  /** @deprecated Legacy migration field — use athleteDesignation. Hidden from API responses. */
+  isProAthlete?: boolean;
+  /** Everyday Fitness Test Log for mainstream / non-team users. */
+  everydayFitnessStats?: IEverydayFitnessStats;
   customWorkouts: Schema.Types.ObjectId[];
   completedWorkouts: [{
     workoutId: Schema.Types.ObjectId;
@@ -389,6 +427,29 @@ const userSchema = new Schema<IUser>(
       }],
       lastUpdatedAt: { type: Date, default: null },
     },
+    isProAthlete: {
+      type: Boolean,
+      default: false,
+      index: true,
+      select: false,
+    },
+    athleteDesignation: {
+      type: String,
+      enum: ['none', 'pro', 'collegiate', 'semi-pro', 'independent_hs'],
+      default: 'none',
+      index: true,
+    },
+    everydayFitnessStats: {
+      pushUpsMax: { type: Number, min: 0 },
+      pullUpsMax: { type: Number, min: 0 },
+      sitUpsMax: { type: Number, min: 0 },
+      curlsWeight: { type: Number, min: 0 },
+      curlsReps: { type: Number, min: 0 },
+      plankSeconds: { type: Number, min: 0 },
+      burpeesCount: { type: Number, min: 0 },
+      everydayFitnessScore: { type: Number, min: 0, max: 100, default: 0 },
+      lastUpdated: { type: Date, default: null },
+    },
     customWorkouts: [{
       type: Schema.Types.ObjectId,
       ref: 'Workout'
@@ -621,6 +682,7 @@ userSchema.methods.toJSON = function() {
   // produced before the migration ran.
   obj.role = obj.role || 'CLIENT';
   obj.subscriptionTier = obj.subscriptionTier || 'BASIC';
+  obj.athleteDesignation = obj.athleteDesignation || 'none';
   return obj;
 };
 

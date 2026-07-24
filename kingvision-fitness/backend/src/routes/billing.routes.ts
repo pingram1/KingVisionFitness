@@ -3,45 +3,68 @@ import crypto from 'crypto';
 import { auth } from '../middleware/auth';
 import { env } from '../config/env';
 import { TIER_CATALOG } from '../config/tierCatalog';
+import User from '../models/User';
+import {
+  createCheckoutSession,
+  createBillingPortalSession,
+  isPaidCatalogTier,
+  isStripeCheckoutReady,
+} from '../services/stripeBilling.service';
 
 const router: Router = express.Router();
-
-type PaidTier = Exclude<keyof typeof TIER_CATALOG, 'BASIC'>;
-const PAID_TIERS: readonly PaidTier[] = ['SPECIFIED', 'ACTIVE_CLIENT'];
-
-function isPaidTier(value: unknown): value is PaidTier {
-  return typeof value === 'string' && (PAID_TIERS as readonly string[]).includes(value);
-}
 
 /**
  * POST /api/billing/create-checkout-session
  *
- * SCAFFOLD: returns a placeholder payload describing the session that *would*
- * be created. Replace the body with a real `stripe.checkout.sessions.create`
- * call once Stripe keys + price IDs are wired up. The frontend already speaks
- * this contract, so swapping the implementation will be drop-in.
+ * Creates a Stripe Checkout session for SPECIFIED or ACTIVE_CLIENT tiers.
+ * Returns { checkoutUrl, sessionId } when Stripe is fully configured.
  */
 router.post('/create-checkout-session', auth, async (req: Request, res: Response) => {
   try {
     const requestedTier = req.body?.tier;
 
-    if (!isPaidTier(requestedTier)) {
+    if (!isPaidCatalogTier(requestedTier)) {
       return res.status(400).json({
         success: false,
-        message: `tier must be one of: ${PAID_TIERS.join(', ')}`,
+        message: 'tier must be one of: SPECIFIED, ACTIVE_CLIENT',
       });
     }
 
-    const catalogEntry = TIER_CATALOG[requestedTier];
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
 
-    return res.status(501).json({
-      success: false,
-      message: 'Stripe Checkout is not yet provisioned. Use POST /api/billing/dev-upgrade in non-production environments to bypass.',
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (!isStripeCheckoutReady()) {
+      const catalogEntry = TIER_CATALOG[requestedTier];
+      return res.status(503).json({
+        success: false,
+        message:
+          'Stripe Checkout is not configured on this server. Add STRIPE_SECRET_KEY, webhook secret, and price IDs.',
+        data: {
+          tier: requestedTier,
+          priceCents: catalogEntry.priceCents,
+          interval: catalogEntry.interval,
+          checkoutUrl: null,
+        },
+      });
+    }
+
+    const { checkoutUrl, sessionId } = await createCheckoutSession(user, requestedTier);
+
+    return res.json({
+      success: true,
+      message: 'Checkout session created',
       data: {
         tier: requestedTier,
-        priceCents: catalogEntry.priceCents,
-        interval: catalogEntry.interval,
-        checkoutUrl: null,
+        priceCents: TIER_CATALOG[requestedTier].priceCents,
+        interval: TIER_CATALOG[requestedTier].interval,
+        checkoutUrl,
+        sessionId,
       },
     });
   } catch (error) {
@@ -58,21 +81,16 @@ router.post('/create-checkout-session', auth, async (req: Request, res: Response
  *   1. NODE_ENV must not be `production`
  *   2. Caller must send `X-Dev-Bypass-Secret` matching env.DEV_BYPASS_SECRET
  *      (when configured). If the env var is unset, the endpoint is 404.
- *
- * This makes the route useless to a leaked build that mis-sets NODE_ENV,
- * because the secret header is also required.
  */
 router.post('/dev-upgrade', auth, async (req: Request, res: Response) => {
   if (env.NODE_ENV === 'production') {
     return res.status(404).json({ success: false, message: 'Not found' });
   }
 
-  if (!env.DEV_BYPASS_SECRET) {
+  if (!env.ALLOW_DEV_BYPASS || !env.DEV_BYPASS_SECRET) {
     return res.status(404).json({ success: false, message: 'Not found' });
   }
 
-  // Constant-time compare so the response time can't leak how many characters
-  // of the secret are correct.
   const providedSecret = req.header('x-dev-bypass-secret') ?? '';
   const expected = Buffer.from(env.DEV_BYPASS_SECRET);
   const provided = Buffer.from(providedSecret);
@@ -102,6 +120,42 @@ router.post('/dev-upgrade', auth, async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[billing] dev-upgrade failed:', error);
     res.status(500).json({ success: false, message: 'Failed to upgrade subscription' });
+  }
+});
+
+/**
+ * POST /api/billing/create-portal-session
+ *
+ * Opens the Stripe Customer Portal for subscription management (cancel, invoices).
+ */
+router.post('/create-portal-session', auth, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (!isStripeCheckoutReady()) {
+      return res.status(503).json({
+        success: false,
+        message: 'Stripe billing portal is not configured on this server.',
+      });
+    }
+
+    const { portalUrl } = await createBillingPortalSession(user);
+
+    return res.json({
+      success: true,
+      message: 'Billing portal session created',
+      data: { portalUrl },
+    });
+  } catch (error) {
+    console.error('[billing] create-portal-session failed:', error);
+    res.status(500).json({ success: false, message: 'Failed to create billing portal session' });
   }
 });
 

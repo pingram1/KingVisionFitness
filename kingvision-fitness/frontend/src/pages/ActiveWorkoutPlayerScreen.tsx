@@ -275,10 +275,19 @@ export default function ActiveWorkoutPlayerScreen() {
 
     const finishHydration = (
       logs: ExerciseLogState[],
-      options: { restored: boolean; versionTimestamp?: string }
+      options: {
+        restored: boolean;
+        versionTimestamp?: string;
+        persisted?: PersistedSession | null;
+      }
     ) => {
       if (options.versionTimestamp) {
         workoutUpdatedAtRef.current = options.versionTimestamp;
+      }
+      if (options.persisted) {
+        totalPausedMsRef.current = options.persisted.totalPausedMs ?? 0;
+        pauseStartedAtRef.current = options.persisted.pauseStartedAt ?? null;
+        setIsPaused(Boolean(options.persisted.isPaused));
       }
       setExerciseLogs(logs);
       setRestoredFromCrash(options.restored);
@@ -329,6 +338,7 @@ export default function ActiveWorkoutPlayerScreen() {
                   finishHydration(persisted.exerciseLogs, {
                     restored: true,
                     versionTimestamp: persisted.workoutUpdatedAt ?? currentVersion,
+                    persisted,
                   });
                 },
               },
@@ -343,6 +353,7 @@ export default function ActiveWorkoutPlayerScreen() {
           finishHydration(persisted.exerciseLogs, {
             restored: true,
             versionTimestamp: persisted.workoutUpdatedAt ?? currentVersion,
+            persisted,
           });
           return;
         }
@@ -375,6 +386,9 @@ export default function ActiveWorkoutPlayerScreen() {
         exerciseLogs,
         savedAt: Date.now(),
         workoutUpdatedAt: workoutUpdatedAtRef.current,
+        totalPausedMs: totalPausedMsRef.current,
+        isPaused,
+        pauseStartedAt: pauseStartedAtRef.current,
       };
       persistSession(workoutId, snapshot);
     }, SESSION_PERSIST_DEBOUNCE_MS);
@@ -382,7 +396,7 @@ export default function ActiveWorkoutPlayerScreen() {
     return () => {
       if (persistDebounceRef.current) clearTimeout(persistDebounceRef.current);
     };
-  }, [exerciseLogs, workoutId]);
+  }, [exerciseLogs, isPaused, workoutId]);
 
   // ── Block back navigation unless explicitly allowed ────────────────────────
   useEffect(() => {
@@ -486,9 +500,15 @@ export default function ActiveWorkoutPlayerScreen() {
       setCompletionStats(null);
 
       const endTime = new Date();
+      let pausedDurationMs = totalPausedMsRef.current;
+      if (isPaused && pauseStartedAtRef.current != null) {
+        pausedDurationMs += Date.now() - pauseStartedAtRef.current;
+      }
+
       const payload = {
         startTime: startTimeRef.current.toISOString(),
         endTime: endTime.toISOString(),
+        pausedDurationMs,
         loggedExercises: exerciseLogs.map((exercise) => ({
           name: exercise.name,
           sets: exercise.sets.map((set) => ({

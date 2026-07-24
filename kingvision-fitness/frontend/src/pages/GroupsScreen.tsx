@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import api from '../services/api';
 import type { GroupSummary } from '../types/group';
 import { GROUP_TYPE_ICONS, getDisplayRoleLabel } from '../types/group';
+import { useAuth } from '../context/AuthContext';
 
 export type GroupsStackParamList = {
   GroupsList: undefined;
@@ -30,6 +31,7 @@ type Nav = NativeStackNavigationProp<GroupsStackParamList, 'GroupsList'>;
 
 export default function GroupsScreen() {
   const navigation = useNavigation<Nav>();
+  const { refreshProfile } = useAuth();
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -79,6 +81,7 @@ export default function GroupsScreen() {
       setInviteModalVisible(false);
       setInviteCode('');
       await loadGroups(false);
+      await refreshProfile();
       const joined = response.data.data;
       Alert.alert('Success', response.data.message ?? `Joined ${joined.name}`, [
         {

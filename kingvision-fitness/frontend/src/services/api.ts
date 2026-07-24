@@ -30,6 +30,17 @@ api.interceptors.request.use(async (config) => {
   } catch (error) {
     console.error('Error getting token from storage:', error);
   }
+
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (timeZone) {
+      config.headers['X-User-Timezone'] = timeZone;
+      config.headers['X-Timezone'] = timeZone;
+    }
+  } catch {
+    // Best-effort — backend falls back to profile/default timezone.
+  }
+
   return config;
 });
 

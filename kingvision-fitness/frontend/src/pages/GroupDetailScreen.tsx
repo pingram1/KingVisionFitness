@@ -117,10 +117,10 @@ export default function GroupDetailScreen() {
       await loadRoster();
       await loadDetail(false);
 
-      if (result.temporaryPassword) {
+      if (result.createdUser) {
         Alert.alert(
           'Player added',
-          `Account created for ${firstName} ${lastName}.\n\nTemporary password: ${result.temporaryPassword}\n\nShare this securely so they can log in.`
+          `Account created for ${firstName} ${lastName}.\n\nAsk them to use "Forgot password" on the login screen to set their credentials.`
         );
       } else {
         Alert.alert('Player added', `${firstName} ${lastName} is now on the roster.`);

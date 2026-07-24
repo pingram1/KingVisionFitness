@@ -30,7 +30,6 @@ interface AssignCoachResponse {
     lastName: string;
     role: string;
   };
-  temporaryPassword: string | null;
   createdUser: boolean;
 }
 
@@ -159,11 +158,11 @@ export default function AdminGroupRosterScreen() {
       resetAssignForm();
       await loadRoster();
 
-      const { temporaryPassword, createdUser, user } = response.data.data;
-      if (createdUser && temporaryPassword) {
+      const { createdUser, user } = response.data.data;
+      if (createdUser) {
         Alert.alert(
           'Coach Created',
-          `${user.firstName} ${user.lastName} was assigned as coach.\n\nTemporary password (share securely):\n${temporaryPassword}\n\nThey can log in and change this password from their profile.`,
+          `${user.firstName} ${user.lastName} was assigned as coach.\n\nAsk them to use "Forgot password" on the login screen to set their credentials.`,
           [{ text: 'Got it' }]
         );
       } else {

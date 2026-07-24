@@ -35,7 +35,6 @@ export interface AddTeamMemberResult {
     lastName: string;
     role: string;
   };
-  temporaryPassword: string | null;
   createdUser: boolean;
 }
 

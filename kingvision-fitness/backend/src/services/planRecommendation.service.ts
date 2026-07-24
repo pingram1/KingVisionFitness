@@ -3,6 +3,7 @@ import User from '../models/User';
 import Workout from '../models/Workout';
 import type { IWorkout } from '../models/Workout';
 import type { SubscriptionTier } from '../models/User';
+import { env } from '../config/env';
 import { invokeSageMakerWeeklyPlan } from './mlInference.stub';
 
 export const DEFAULT_VECTOR_DIM = 16;
@@ -265,7 +266,7 @@ export class PlanRecommendationService {
 
     /** Coach tier: optionally merge externally ranked IDs (stub) without blocking local ranking */
     let externalMlUsed = false;
-    if (tier === 'ACTIVE_CLIENT') {
+    if (tier === 'ACTIVE_CLIENT' && env.ENABLE_ML_INFERENCE) {
       const ml = await invokeSageMakerWeeklyPlan({
         userAnonymizedId: userId.toHexString(),
         featureSummary: { adherence: avgResidual },

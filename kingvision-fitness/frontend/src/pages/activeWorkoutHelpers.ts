@@ -18,6 +18,9 @@ export interface PersistedSession {
   savedAt: number;
   /** Workout template `updatedAt` captured when the session first started. */
   workoutUpdatedAt?: string;
+  totalPausedMs?: number;
+  isPaused?: boolean;
+  pauseStartedAt?: number | null;
 }
 
 export const SESSION_STORAGE_PREFIX = '@kvf:active-workout:';

@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Workout from '../models/Workout';
 import WorkoutSession, { ILoggedExercise } from '../models/WorkoutSession';
 import User from '../models/User';
+import Group from '../models/Group';
 import { auth, authorizeRoles } from '../middleware/auth';
 import {
   createWorkoutValidators,
@@ -11,6 +12,28 @@ import {
 import { updateWorkoutAdmin } from '../controllers/workout.controller';
 
 const router: Router = express.Router();
+
+/** Increment group membership activity counters used by leaderboard fallbacks. */
+async function incrementGroupWorkoutStats(
+  userId: string,
+  durationMinutes: number
+): Promise<void> {
+  const user = await User.findById(userId).select('groupMemberships').lean();
+  if (!user?.groupMemberships?.length) return;
+
+  const groupIds = user.groupMemberships.map((m) => m.group);
+  const groups = await Group.find({ _id: { $in: groupIds } });
+
+  await Promise.all(
+    groups.map(async (group) => {
+      const membership = group.getMembership(userId);
+      if (!membership) return;
+      membership.workoutsCompleted = (membership.workoutsCompleted ?? 0) + 1;
+      membership.totalMinutes = (membership.totalMinutes ?? 0) + durationMinutes;
+      await group.save();
+    })
+  );
+}
 
 function parseLoggedExercises(raw: unknown): ILoggedExercise[] {
   if (!Array.isArray(raw)) return [];
@@ -214,10 +237,12 @@ router.post('/:id/complete', auth, async (req: any, res: any) => {
     }
 
     const loggedExercises = parseLoggedExercises(req.body.loggedExercises);
-    const durationMinutes = Math.max(
-      1,
-      Math.round((endTime.getTime() - startTime.getTime()) / 60000)
+    const pausedDurationMs = Math.max(0, Number(req.body.pausedDurationMs ?? 0) || 0);
+    const elapsedMs = Math.max(
+      0,
+      endTime.getTime() - startTime.getTime() - pausedDurationMs
     );
+    const durationMinutes = Math.max(1, Math.round(elapsedMs / 60000));
 
     const session = await WorkoutSession.create({
       userId: req.user._id,
@@ -241,6 +266,8 @@ router.post('/:id/complete', auth, async (req: any, res: any) => {
 
     workout.completionCount = (workout.completionCount ?? 0) + 1;
     await workout.save();
+
+    await incrementGroupWorkoutStats(userId, durationMinutes);
 
     return res.status(201).json({
       success: true,

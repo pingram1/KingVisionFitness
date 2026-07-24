@@ -55,16 +55,36 @@ const schema = z.object({
   CLIENT_URL: z.string().url().default('http://localhost:3000'),
   APP_URL: z.string().url().default('http://localhost:5001'),
 
-  // Stripe is stubbed today; webhook secret is only required once
-  // STRIPE_SECRET_KEY is set. Both optional at this layer to keep the
-  // billing scaffold runnable locally.
+  // Stripe — optional until billing ships; when STRIPE_SECRET_KEY is set,
+  // STRIPE_WEBHOOK_SECRET is required (see cross-field check below).
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_PRICE_ID_SPECIFIED: z.string().optional(),
+  STRIPE_PRICE_ID_ACTIVE_CLIENT: z.string().optional(),
+  STRIPE_SUCCESS_URL: z.string().url().optional(),
+  STRIPE_CANCEL_URL: z.string().url().optional(),
 
   // Required header secret for /api/billing/dev-upgrade. The previous guard
   // (NODE_ENV !== 'production') is preserved as an additional gate; this
   // header makes the route useless to a leaked dev build by default.
   DEV_BYPASS_SECRET: z.string().min(secretMin).optional(),
+  /** Must be `true` to enable POST /api/billing/dev-upgrade (non-production only). */
+  ALLOW_DEV_BYPASS: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => v === 'true'),
+
+  /** Register Coach-in-Pocket socket stubs (disabled by default in production). */
+  ENABLE_COACH_IN_POCKET_SOCKETS: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => v === 'true'),
+
+  /** Enable SageMaker ML inference stub for workout recommendations. */
+  ENABLE_ML_INFERENCE: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => v === 'true'),
 
   SENDGRID_API_KEY: z.string().optional(),
   SMTP_HOST: z.string().optional(),
@@ -104,4 +124,19 @@ if (env.STRIPE_SECRET_KEY && !env.STRIPE_WEBHOOK_SECRET) {
       '   Webhooks cannot be verified without this — refusing to start.\n'
   );
   process.exit(1);
+}
+
+if (isProd && env.STRIPE_SECRET_KEY) {
+  const missingPrices: string[] = [];
+  if (!env.STRIPE_PRICE_ID_SPECIFIED) missingPrices.push('STRIPE_PRICE_ID_SPECIFIED');
+  if (!env.STRIPE_PRICE_ID_ACTIVE_CLIENT) missingPrices.push('STRIPE_PRICE_ID_ACTIVE_CLIENT');
+  if (missingPrices.length > 0) {
+    // eslint-disable-next-line no-console
+    console.error(
+      '\n❌ Production Stripe is enabled but price IDs are missing:\n' +
+        missingPrices.map((k) => `   - ${k}`).join('\n') +
+        '\n'
+    );
+    process.exit(1);
+  }
 }

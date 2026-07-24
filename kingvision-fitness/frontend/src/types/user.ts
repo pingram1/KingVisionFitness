@@ -1,4 +1,5 @@
 import type { WorkoutType } from './workout';
+import type { AthleteDesignation } from './athleteStats';
 
 export type UserRole = 'SUPER_ADMIN' | 'TRAINER' | 'CLIENT';
 
@@ -38,6 +39,13 @@ export interface UserProfile {
   };
   /** Product tier. Server-side default is 'BASIC'. */
   subscriptionTier?: SubscriptionTier;
+  /** Individual elite-track designation — athletic combine without team role. */
+  athleteDesignation?: AthleteDesignation;
+  groupMemberships?: Array<{
+    group: string;
+    role: 'member' | 'athlete' | 'captain' | 'coach' | 'participant';
+    joinedAt?: string;
+  }>;
   completedWorkouts?: CompletedWorkoutEntry[];
 }
 

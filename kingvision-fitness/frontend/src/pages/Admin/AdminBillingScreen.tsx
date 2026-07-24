@@ -6,9 +6,12 @@ import {
   ScrollView,
   ActivityIndicator,
   RefreshControl,
+  TouchableOpacity,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchAdminAnalytics, formatCount, formatMrr } from '../../api/adminAnalytics';
+import { fetchAdminBillingStatus, type AdminBillingStatus } from '../../api/adminBilling';
 import type { AdminAnalytics } from '../../types/adminAnalytics';
 
 const TIER_PRICING = {
@@ -65,6 +68,7 @@ function OpsChecklistItem({ done, text }: { done: boolean; text: string }) {
  */
 export default function AdminBillingScreen() {
   const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
+  const [billingStatus, setBillingStatus] = useState<AdminBillingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,8 +77,12 @@ export default function AdminBillingScreen() {
     try {
       setError(null);
       if (showLoader) setLoading(true);
-      const data = await fetchAdminAnalytics();
-      setAnalytics(data);
+      const [analyticsData, statusData] = await Promise.all([
+        fetchAdminAnalytics(),
+        fetchAdminBillingStatus(),
+      ]);
+      setAnalytics(analyticsData);
+      setBillingStatus(statusData);
     } catch (loadError) {
       console.error('Failed to load billing ops:', loadError);
       setError('Could not load billing data. Pull to refresh.');
@@ -114,7 +122,7 @@ export default function AdminBillingScreen() {
         </View>
         <Text style={styles.heroTitle}>Billing Ops</Text>
         <Text style={styles.heroSubtitle}>
-          Subscription health and revenue projections — Stripe integration pending.
+          Subscription health, revenue projections, and Stripe connection status.
         </Text>
       </View>
 
@@ -189,16 +197,62 @@ export default function AdminBillingScreen() {
       <View style={styles.stripeCard}>
         <View style={styles.stripeHeader}>
           <Ionicons name="card" size={22} color="#635bff" />
-          <Text style={styles.stripeTitle}>Stripe — not connected</Text>
+          <Text style={styles.stripeTitle}>
+            Stripe —{' '}
+            {billingStatus?.checkoutReady
+              ? `connected (${billingStatus.mode})`
+              : billingStatus?.stripeConfigured
+                ? 'partial setup'
+                : 'not connected'}
+          </Text>
+          <View
+            style={[
+              styles.stripeBadge,
+              billingStatus?.checkoutReady
+                ? styles.stripeBadgeOk
+                : styles.stripeBadgeWarn,
+            ]}
+          >
+            <Text style={styles.stripeBadgeText}>
+              {billingStatus?.checkoutReady ? 'Live' : 'Setup'}
+            </Text>
+          </View>
         </View>
         <Text style={styles.stripeBody}>
-          Live checkout, webhooks, and payout reconciliation will appear here once API keys are
-          configured. Until then, tier changes use the dev upgrade path only.
+          {billingStatus?.checkoutReady
+            ? 'Checkout and webhooks are configured. Open the Stripe Dashboard for payouts and subscription management.'
+            : 'Add Stripe API keys, price IDs, and register the production webhook URL to enable paid checkout.'}
         </Text>
+        {billingStatus?.lastWebhookReceivedAt ? (
+          <Text style={styles.webhookMeta}>
+            Last webhook: {billingStatus.lastWebhookEventType ?? 'event'} ·{' '}
+            {new Date(billingStatus.lastWebhookReceivedAt).toLocaleString()}
+          </Text>
+        ) : null}
         <OpsChecklistItem done={paidSubscribers > 0} text="At least one paid-tier member" />
-        <OpsChecklistItem done={false} text="Stripe secret + publishable keys in backend .env" />
-        <OpsChecklistItem done={false} text="Webhook endpoint registered for subscription events" />
-        <OpsChecklistItem done={false} text="Customer portal link for self-serve billing" />
+        <OpsChecklistItem
+          done={Boolean(billingStatus?.stripeConfigured)}
+          text="Stripe secret + webhook secret in backend .env"
+        />
+        <OpsChecklistItem
+          done={Boolean(billingStatus?.checkoutReady)}
+          text="Subscription price IDs configured (Specified + Active Client)"
+        />
+        <OpsChecklistItem
+          done={Boolean(billingStatus?.webhookHealthy)}
+          text="Webhook received in the last 7 days"
+        />
+        {billingStatus?.stripeConfigured ? (
+          <TouchableOpacity
+            style={styles.stripeDashboardButton}
+            onPress={() => void Linking.openURL(billingStatus.dashboardUrl)}
+            accessibilityRole="button"
+            accessibilityLabel="Open Stripe Dashboard"
+          >
+            <Ionicons name="open-outline" size={18} color="#fff" />
+            <Text style={styles.stripeDashboardButtonText}>Open Stripe Dashboard</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {analytics?.generatedAt && !showSkeleton ? (
@@ -318,9 +372,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginBottom: 8,
+    flexWrap: 'wrap',
   },
-  stripeTitle: { fontSize: 15, fontWeight: '700', color: '#111827' },
+  stripeTitle: { fontSize: 15, fontWeight: '700', color: '#111827', flex: 1 },
+  stripeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  stripeBadgeOk: { backgroundColor: '#dcfce7' },
+  stripeBadgeWarn: { backgroundColor: '#fef3c7' },
+  stripeBadgeText: { fontSize: 11, fontWeight: '700', color: '#374151' },
   stripeBody: { fontSize: 13, color: '#6b7280', lineHeight: 19, marginBottom: 12 },
+  webhookMeta: { fontSize: 12, color: '#9ca3af', marginBottom: 10 },
+  stripeDashboardButton: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#635bff',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  stripeDashboardButtonText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   checklistRow: {
     flexDirection: 'row',
     alignItems: 'center',

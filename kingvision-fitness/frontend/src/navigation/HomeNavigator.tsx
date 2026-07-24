@@ -5,6 +5,7 @@ import HomeScreen from '../pages/HomeScreen';
 import ClientBookingScreen from '../pages/ClientBookingScreen';
 import ClientSessionsScreen from '../pages/ClientSessionsScreen';
 import NutritionScreen from '../pages/NutritionScreen';
+import NutritionVerificationScreen from '../pages/NutritionVerificationScreen';
 import ProgressTrackingScreen from '../pages/ProgressTrackingScreen';
 
 export type HomeStackParamList = {
@@ -12,6 +13,7 @@ export type HomeStackParamList = {
   ClientBooking: undefined;
   ClientSessions: undefined;
   Nutrition: undefined;
+  NutritionVerification: undefined;
   ProgressTracking: undefined;
 };
 
@@ -39,6 +41,11 @@ export default function HomeNavigator() {
         name="Nutrition"
         component={NutritionScreen}
         options={{ title: 'Nutrition & Meals', headerBackTitle: 'Home' }}
+      />
+      <HomeStack.Screen
+        name="NutritionVerification"
+        component={NutritionVerificationScreen}
+        options={{ title: 'Verify Nutrition', headerBackTitle: 'Nutrition' }}
       />
       <HomeStack.Screen
         name="ProgressTracking"

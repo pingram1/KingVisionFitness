@@ -23,8 +23,19 @@ import type {
 } from '../types/user';
 import type { HomeStackParamList } from '../navigation/HomeNavigator';
 import { useFocusRefresh } from '../hooks/useFocusRefresh';
+import { useAppUsageTracker } from '../hooks/useAppUsageTracker';
 import { fetchWeeklyRecommendations } from '../api/recommendations';
+import { fetchGamificationStatus } from '../api/gamification';
 import type { RecommendedWorkout } from '../types/recommendations';
+import type { GamificationStatus } from '../types/gamification';
+import ConsistencyBadge from '../components/ConsistencyBadge';
+import {
+  getTier,
+  hasPersonalizedPrograms,
+  isActiveClient,
+  isSpecifiedOrAbove,
+  subscriptionLabel,
+} from '../utils/subscriptionAccess';
 
 type HomeScreenNav = NativeStackNavigationProp<HomeStackParamList, 'HomeMain'>;
 
@@ -35,27 +46,6 @@ interface DashboardStats {
   weeklyWorkoutsCompleted: number;
   weeklyPlanCount: number;
   recentActivity: CompletedWorkoutEntry[];
-}
-
-function computeDayStreak(completions: CompletedWorkoutEntry[]): number {
-  if (completions.length === 0) return 0;
-
-  const dayKeys = new Set(
-    completions.map((c) => format(new Date(c.completedAt), 'yyyy-MM-dd'))
-  );
-
-  const cursor = new Date();
-  const todayKey = format(cursor, 'yyyy-MM-dd');
-  if (!dayKeys.has(todayKey)) {
-    cursor.setDate(cursor.getDate() - 1);
-  }
-
-  let streak = 0;
-  while (dayKeys.has(format(cursor, 'yyyy-MM-dd'))) {
-    streak += 1;
-    cursor.setDate(cursor.getDate() - 1);
-  }
-  return streak;
 }
 
 function countCompletionsThisWeek(completions: CompletedWorkoutEntry[]): number {
@@ -74,10 +64,10 @@ function countCompletionsThisWeek(completions: CompletedWorkoutEntry[]): number 
  * `AuthContext.user.subscriptionTier` so it re-renders the instant
  * {@link refreshProfile} returns from a successful upgrade.
  */
-function subscriptionLabel(tier: SubscriptionTier | undefined): string {
-  if (tier === 'ACTIVE_CLIENT') return 'Active Client';
-  if (tier === 'SPECIFIED') return 'Specified Plan';
-  return 'Basic Member';
+function membershipLabelFromUser(
+  tier: SubscriptionTier | undefined
+): string {
+  return subscriptionLabel(tier);
 }
 
 export default function HomeScreen() {
@@ -86,6 +76,7 @@ export default function HomeScreen() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyWorkoutSummary[]>([]);
   const [suggestions, setSuggestions] = useState<RecommendedWorkout[]>([]);
+  const [gamification, setGamification] = useState<GamificationStatus | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -106,7 +97,7 @@ export default function HomeScreen() {
       return {
         workoutsCompleted: completions.length,
         totalMinutes,
-        currentStreak: computeDayStreak(completions),
+        currentStreak: 0,
         weeklyWorkoutsCompleted: countCompletionsThisWeek(completions),
         weeklyPlanCount: planCount,
         recentActivity,
@@ -120,10 +111,11 @@ export default function HomeScreen() {
       setLoadError(null);
       if (showFullScreenLoader) setLoading(true);
 
-      const [profileRes, weeklyRes, recommendationsRes] = await Promise.all([
+      const [profileRes, weeklyRes, recommendationsRes, gamificationRes] = await Promise.all([
         api.get<{ success: boolean; data: UserProfile }>('/users/profile'),
         api.get<{ success: boolean; data: WeeklyWorkoutSummary[] }>('/workouts/weekly'),
         fetchWeeklyRecommendations(3).catch(() => null),
+        fetchGamificationStatus().catch(() => null),
       ]);
 
       const userProfile = profileRes.data.data;
@@ -132,7 +124,11 @@ export default function HomeScreen() {
       setProfile(userProfile);
       setWeeklyPlan(plan);
       setSuggestions(recommendationsRes?.workouts ?? []);
-      setStats(buildStatsFromProfile(userProfile, plan.length));
+      setGamification(gamificationRes);
+      setStats({
+        ...buildStatsFromProfile(userProfile, plan.length),
+        currentStreak: gamificationRes?.currentStreakDays ?? 0,
+      });
     } catch (error) {
       console.error('Error loading dashboard:', error);
       setLoadError('Failed to load dashboard. Pull to refresh or try again.');
@@ -141,7 +137,16 @@ export default function HomeScreen() {
     }
   }, [buildStatsFromProfile]);
 
-  useFocusRefresh(loadDashboardData);
+  const refreshOnFocus = useCallback(
+    async (showFullScreenLoader: boolean) => {
+      await refreshProfile();
+      await loadDashboardData(showFullScreenLoader);
+    },
+    [refreshProfile, loadDashboardData]
+  );
+
+  useFocusRefresh(refreshOnFocus);
+  useAppUsageTracker(Boolean(user));
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -167,8 +172,9 @@ export default function HomeScreen() {
         ? 100
         : 0;
 
-  const currentTier: SubscriptionTier = user?.subscriptionTier ?? 'BASIC';
-  const isActiveClientTier = currentTier === 'ACTIVE_CLIENT';
+  const currentTier = getTier(user);
+  const isActiveClientTier = isActiveClient(user);
+  const showPersonalizedSuggestions = hasPersonalizedPrograms(user);
 
   if (loading && !stats) {
     return (
@@ -203,7 +209,7 @@ export default function HomeScreen() {
           <Text style={styles.greeting}>
             {getGreeting()}, {profile?.profile?.firstName || 'User'}!
           </Text>
-          <Text style={styles.subtitle}>{subscriptionLabel(currentTier)}</Text>
+          <Text style={styles.subtitle}>{membershipLabelFromUser(currentTier)}</Text>
         </View>
         <TouchableOpacity
           style={styles.notificationButton}
@@ -212,6 +218,8 @@ export default function HomeScreen() {
           <Ionicons name="notifications-outline" size={24} color="#333" />
         </TouchableOpacity>
       </View>
+
+      {gamification ? <ConsistencyBadge status={gamification} /> : null}
 
       <View style={styles.statsContainer}>
         <View style={styles.statCard}>
@@ -303,6 +311,16 @@ export default function HomeScreen() {
               </View>
               <Text style={styles.quickActionText}>My Sessions</Text>
             </TouchableOpacity>
+          ) : isSpecifiedOrAbove(user) ? (
+            <TouchableOpacity
+              style={styles.quickActionCard}
+              onPress={() => navigation.navigate('ProgressTracking')}
+            >
+              <View style={[styles.quickActionIcon, { backgroundColor: '#FF980020' }]}>
+                <Ionicons name="stats-chart" size={28} color="#FF9800" />
+              </View>
+              <Text style={styles.quickActionText}>Progress Analytics</Text>
+            </TouchableOpacity>
           ) : (
             <TouchableOpacity
               style={styles.quickActionCard}
@@ -317,7 +335,7 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {suggestions.length > 0 ? (
+      {showPersonalizedSuggestions && suggestions.length > 0 ? (
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Suggested for You</Text>
@@ -406,9 +424,15 @@ export default function HomeScreen() {
         >
           <View style={styles.upgradeContent}>
             <View>
-              <Text style={styles.upgradeTitle}>Upgrade to Active Client</Text>
+              <Text style={styles.upgradeTitle}>
+                {isSpecifiedOrAbove(user)
+                  ? 'Upgrade to Active Client'
+                  : 'Upgrade Your Membership'}
+              </Text>
               <Text style={styles.upgradeText}>
-                Get custom workouts, meal plans, and direct trainer access
+                {isSpecifiedOrAbove(user)
+                  ? 'Unlock custom workouts, trainer meal plans, and 1-on-1 booking'
+                  : 'Get personalized programs, nutrition guidance, and progress analytics'}
               </Text>
             </View>
             <Ionicons name="arrow-forward" size={24} color="#667eea" />

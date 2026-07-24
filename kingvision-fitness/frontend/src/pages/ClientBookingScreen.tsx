@@ -20,6 +20,7 @@ import api from '../services/api';
 import type { AvailabilitySlot } from '../types/schedule';
 import { DAY_LABELS } from '../types/schedule';
 import type { HomeStackParamList } from '../navigation/HomeNavigator';
+import RequireActiveClient from '../components/RequireActiveClient';
 import {
   formatLongDate,
   formatTime12Hour,
@@ -48,6 +49,14 @@ function parseApiError(error: unknown, fallback: string): string {
  * contract only at submit time.
  */
 export default function ClientBookingScreen() {
+  return (
+    <RequireActiveClient featureLabel="1-on-1 session booking">
+      <ClientBookingContent />
+    </RequireActiveClient>
+  );
+}
+
+function ClientBookingContent() {
   const navigation = useNavigation<Nav>();
 
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);

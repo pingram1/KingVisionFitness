@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,14 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import * as WebBrowser from 'expo-web-browser';
 import api from '../services/api';
+import { createCheckoutSession } from '../api/billing';
 import { useAuth } from '../context/AuthContext';
 import type { SubscriptionTier } from '../types/user';
+import { getTier } from '../utils/subscriptionAccess';
 
 type TierKey = SubscriptionTier;
 
@@ -70,6 +73,12 @@ const TIERS: TierCard[] = [
   },
 ];
 
+const TIER_RANK: Record<TierKey, number> = {
+  BASIC: 0,
+  SPECIFIED: 1,
+  ACTIVE_CLIENT: 2,
+};
+
 function parseApiError(error: unknown, fallback: string): string {
   if (error && typeof error === 'object' && 'response' in error) {
     const data = (error as { response?: { data?: { message?: string } } }).response?.data;
@@ -84,24 +93,42 @@ function parseApiError(error: unknown, fallback: string): string {
 
 const DEV_BYPASS_ENABLED = __DEV__ && Boolean(process.env.EXPO_PUBLIC_DEV_BYPASS_SECRET);
 
+async function pollProfileUntilTier(
+  expectedTier: TierKey,
+  refreshProfile: () => Promise<{ subscriptionTier?: SubscriptionTier } | null>,
+  maxAttempts = 8
+): Promise<boolean> {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const fresh = await refreshProfile();
+    if (fresh?.subscriptionTier === expectedTier) return true;
+    const delayMs = Math.min(1000 * (attempt + 1), 4000);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return false;
+}
+
 export default function UpgradeScreen() {
   const navigation = useNavigation();
   const { user, refreshProfile } = useAuth();
   const [upgrading, setUpgrading] = useState(false);
+  const [checkoutTier, setCheckoutTier] = useState<TierKey | null>(null);
 
-  const currentTier: TierKey = user?.subscriptionTier ?? 'BASIC';
+  const currentTier: TierKey = getTier(user);
 
   const sortedTiers = useMemo(
     () => [...TIERS].sort((a, b) => (a.key === 'ACTIVE_CLIENT' ? -1 : b.key === 'ACTIVE_CLIENT' ? 1 : 0)),
     []
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      void refreshProfile();
+    }, [refreshProfile])
+  );
+
   const handleDevUpgrade = async () => {
     try {
       setUpgrading(true);
-      // Backend now requires both DEV_BYPASS_SECRET env + matching header.
-      // EXPO_PUBLIC_DEV_BYPASS_SECRET is intentionally undefined in production
-      // builds; the backend will respond 404 there which is the correct gate.
       const devSecret = process.env.EXPO_PUBLIC_DEV_BYPASS_SECRET;
       await api.post(
         '/billing/dev-upgrade',
@@ -128,18 +155,45 @@ export default function UpgradeScreen() {
     }
   };
 
+  const handleStripeCheckout = async (tier: 'SPECIFIED' | 'ACTIVE_CLIENT') => {
+    try {
+      setCheckoutTier(tier);
+      const { checkoutUrl } = await createCheckoutSession(tier);
+      await WebBrowser.openBrowserAsync(checkoutUrl, {
+        dismissButtonStyle: 'close',
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+      });
+      const updated = await pollProfileUntilTier(tier, refreshProfile);
+      if (!updated) {
+        Alert.alert(
+          'Payment processing',
+          'Your payment may still be processing. Pull to refresh on your Profile if your tier has not updated yet.'
+        );
+      }
+    } catch (error) {
+      console.error('Stripe checkout failed:', error);
+      Alert.alert('Checkout unavailable', parseApiError(error, 'Could not start checkout.'));
+    } finally {
+      setCheckoutTier(null);
+    }
+  };
+
+  const showPaymentsBanner = !DEV_BYPASS_ENABLED && currentTier === 'BASIC';
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.paymentsBanner}>
-        <Ionicons name="time-outline" size={18} color="#92400e" />
-        <View style={styles.paymentsBannerBody}>
-          <Text style={styles.paymentsBannerTitle}>Payments launching soon</Text>
-          <Text style={styles.paymentsBannerText}>
-            Secure Stripe checkout is being finalized. Membership pricing below reflects what will
-            be available at launch.
-          </Text>
+      {showPaymentsBanner ? (
+        <View style={styles.paymentsBanner}>
+          <Ionicons name="card-outline" size={18} color="#1e40af" />
+          <View style={styles.paymentsBannerBody}>
+            <Text style={styles.paymentsBannerTitle}>Upgrade with Stripe</Text>
+            <Text style={styles.paymentsBannerText}>
+              Choose a paid plan below to open secure checkout. Your membership updates automatically
+              after payment.
+            </Text>
+          </View>
         </View>
-      </View>
+      ) : null}
 
       <View style={styles.hero}>
         <Ionicons name="diamond" size={32} color="#FFD54F" />
@@ -151,7 +205,11 @@ export default function UpgradeScreen() {
 
       {sortedTiers.map((tier) => {
         const isCurrent = tier.key === currentTier;
+        const isUpgradeTarget = TIER_RANK[tier.key] > TIER_RANK[currentTier];
+        const isPaidTier = tier.key === 'SPECIFIED' || tier.key === 'ACTIVE_CLIENT';
         const isHero = tier.key === 'ACTIVE_CLIENT';
+        const isCheckingOut = checkoutTier === tier.key;
+
         return (
           <View
             key={tier.key}
@@ -210,12 +268,29 @@ export default function UpgradeScreen() {
                   </>
                 )}
               </TouchableOpacity>
-            ) : (
-              <View style={styles.comingSoon}>
-                <Ionicons name="card-outline" size={14} color="#92400e" />
-                <Text style={styles.comingSoonText}>Payments launching soon</Text>
+            ) : isPaidTier && isUpgradeTarget ? (
+              <TouchableOpacity
+                style={[styles.upgradeButton, { backgroundColor: tier.accent }]}
+                onPress={() => handleStripeCheckout(tier.key as 'SPECIFIED' | 'ACTIVE_CLIENT')}
+                disabled={isCheckingOut}
+                accessibilityRole="button"
+                accessibilityLabel={`Subscribe to ${tier.label}`}
+              >
+                {isCheckingOut ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="card" size={16} color="#fff" />
+                    <Text style={styles.upgradeButtonText}>Subscribe — {tier.price}/mo</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            ) : isPaidTier && !isUpgradeTarget ? (
+              <View style={styles.includedPill}>
+                <Ionicons name="checkmark-done" size={14} color="#555" />
+                <Text style={styles.includedPillText}>Included in your plan</Text>
               </View>
-            )}
+            ) : null}
           </View>
         );
       })}
@@ -224,8 +299,8 @@ export default function UpgradeScreen() {
         <Ionicons name="information-circle-outline" size={16} color="#888" />
         <Text style={styles.footerNoteText}>
           {DEV_BYPASS_ENABLED
-            ? 'Development mode: the Dev Upgrade button grants Active Client access for testing. Production builds will use Stripe checkout once keys are configured.'
-            : 'Online payments are not live yet. Contact KingVision Fitness to request early access or tier changes until Stripe checkout launches.'}
+            ? 'Development mode: Dev Upgrade grants Active Client without Stripe. Production uses Stripe Checkout.'
+            : 'Payments are processed securely by Stripe. Pull to refresh your profile after returning from checkout.'}
         </Text>
       </View>
     </ScrollView>
@@ -245,9 +320,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    backgroundColor: '#fffbeb',
+    backgroundColor: '#eff6ff',
     borderWidth: 1,
-    borderColor: '#fcd34d',
+    borderColor: '#93c5fd',
     borderRadius: 14,
     padding: 14,
     marginBottom: 4,
@@ -258,12 +333,12 @@ const styles = StyleSheet.create({
   paymentsBannerTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#92400e',
+    color: '#1e40af',
     marginBottom: 4,
   },
   paymentsBannerText: {
     fontSize: 12,
-    color: '#78350f',
+    color: '#1e3a8a',
     lineHeight: 17,
   },
   hero: {
@@ -395,22 +470,20 @@ const styles = StyleSheet.create({
     color: '#555',
     fontWeight: '600',
   },
-  comingSoon: {
-    marginTop: 16,
+  includedPill: {
     alignSelf: 'flex-start',
+    marginTop: 16,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#fffbeb',
+    paddingVertical: 6,
+    backgroundColor: '#f1f1f3',
     borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#fcd34d',
   },
-  comingSoonText: {
+  includedPillText: {
     fontSize: 12,
-    color: '#92400e',
+    color: '#555',
     fontWeight: '600',
   },
   footerNote: {

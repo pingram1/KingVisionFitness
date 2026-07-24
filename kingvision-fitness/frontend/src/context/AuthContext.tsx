@@ -2,31 +2,9 @@ import React, { createContext, useState, useContext, useEffect } from 'react';
 import api from '../services/api';
 import { authTokenStorage } from '../storage/authTokenStorage';
 import { clearPushToken } from '../api/pushToken';
-import type { UserRole } from '../types/user';
+import type { UserProfile } from '../types/user';
 
-interface User {
-  _id: string;
-  email: string;
-  /**
-   * Platform RBAC role. Drives conditional navigation (e.g. Admin tab) and
-   * any client-side guards. Server is always the source of truth — never trust
-   * this value for actual authorization, only for UX gating.
-   */
-  role: UserRole;
-  profile: {
-    firstName: string;
-    lastName: string;
-    avatar?: string;
-  };
-  subscription: {
-    tier: string;
-    status: string;
-  };
-  /** Product tier from profile/login — used for feature gating in the UI. */
-  subscriptionTier?: 'BASIC' | 'SPECIFIED' | 'ACTIVE_CLIENT';
-  /** Present when populated by dashboard/profile APIs */
-  completedWorkouts?: { duration?: number; [key: string]: unknown }[];
-}
+type User = UserProfile;
 
 /** Human-readable message from axios errors (validation array, message, or network). */
 function messageFromApiError(error: unknown, fallback: string): string {
@@ -196,3 +174,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     </AuthContext.Provider>
   );
 };
+
+export {
+  getTier,
+  isActiveClient,
+  isSpecifiedOrAbove,
+  hasCustomWorkouts,
+  hasCustomNutrition,
+  subscriptionLabel,
+} from '../utils/subscriptionAccess';

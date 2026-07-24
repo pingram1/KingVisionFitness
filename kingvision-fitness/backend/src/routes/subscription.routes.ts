@@ -3,61 +3,31 @@ import { auth } from '../middleware/auth';
 
 const router: Router = express.Router();
 
+const NOT_IMPLEMENTED = {
+  success: false,
+  message:
+    'Subscription management has moved to /api/billing. Use POST /api/billing/checkout-session for upgrades.',
+};
+
 // @route   GET /api/subscriptions/current
-// @desc    Get current subscription
+// @desc    Deprecated — use GET /api/users/profile (subscriptionTier field)
 // @access  Private
-router.get('/current', auth, async (req: any, res: any) => {
-  try {
-    // TODO: Implement get current subscription
-    res.json({
-      success: true,
-      message: 'Current subscription endpoint',
-      data: req.user?.subscription
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching subscription'
-    });
-  }
+router.get('/current', auth, async (_req: any, res: any) => {
+  res.status(501).json(NOT_IMPLEMENTED);
 });
 
 // @route   POST /api/subscriptions/upgrade
-// @desc    Upgrade to Active Client
+// @desc    Deprecated — use POST /api/billing/checkout-session
 // @access  Private
-router.post('/upgrade', auth, async (req: any, res: any) => {
-  try {
-    // TODO: Implement subscription upgrade with Stripe
-    res.json({
-      success: true,
-      message: 'Upgrade subscription endpoint',
-      data: {}
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error upgrading subscription'
-    });
-  }
+router.post('/upgrade', auth, async (_req: any, res: any) => {
+  res.status(501).json(NOT_IMPLEMENTED);
 });
 
 // @route   POST /api/subscriptions/cancel
-// @desc    Cancel subscription
+// @desc    Deprecated — use Stripe Customer Portal via /api/billing/portal-session
 // @access  Private
-router.post('/cancel', auth, async (req: any, res: any) => {
-  try {
-    // TODO: Implement subscription cancellation
-    res.json({
-      success: true,
-      message: 'Cancel subscription endpoint',
-      data: {}
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error cancelling subscription'
-    });
-  }
+router.post('/cancel', auth, async (_req: any, res: any) => {
+  res.status(501).json(NOT_IMPLEMENTED);
 });
 
 export default router;

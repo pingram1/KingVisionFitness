@@ -14,8 +14,12 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
+import { useFitnessTrack } from '../hooks/useFitnessTrack';
 import type { CompletedWorkoutEntry, SubscriptionTier, UserProfile } from '../types/user';
 import type { ProfileStackParamList } from '../navigation/ProfileNavigator';
+import { getTier, isActiveClient as isActiveClientTier } from '../utils/subscriptionAccess';
+import { createBillingPortalSession } from '../api/billing';
+import * as WebBrowser from 'expo-web-browser';
 
 type ProfileNav = NativeStackNavigationProp<ProfileStackParamList, 'ProfileMain'>;
 
@@ -73,6 +77,27 @@ export default function ProfileScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [openingPortal, setOpeningPortal] = useState(false);
+
+  const handleManageBilling = async () => {
+    try {
+      setOpeningPortal(true);
+      const { portalUrl } = await createBillingPortalSession();
+      await WebBrowser.openBrowserAsync(portalUrl, {
+        dismissButtonStyle: 'close',
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+      });
+      await refreshProfile();
+    } catch (error) {
+      console.error('Billing portal failed:', error);
+      Alert.alert(
+        'Billing unavailable',
+        'Could not open subscription management. Try again from the Upgrade screen.'
+      );
+    } finally {
+      setOpeningPortal(false);
+    }
+  };
 
   const loadProfile = useCallback(
     async (showFullScreenLoader = true) => {
@@ -102,6 +127,7 @@ export default function ProfileScreen() {
     try {
       await refreshProfile();
       await loadProfile(false);
+      await refreshFitnessTrack();
     } finally {
       setRefreshing(false);
     }
@@ -142,6 +168,8 @@ export default function ProfileScreen() {
     return { totalWorkouts, totalMinutes, lastWorkoutAt };
   }, [profile]);
 
+  const { track: fitnessTrack, refresh: refreshFitnessTrack } = useFitnessTrack();
+
   if (loading && !profile) {
     return (
       <View style={styles.loadingContainer}>
@@ -166,8 +194,8 @@ export default function ProfileScreen() {
     );
   }
 
-  const currentTier: SubscriptionTier = user?.subscriptionTier ?? 'BASIC';
-  const isActiveClient = currentTier === 'ACTIVE_CLIENT';
+  const currentTier = getTier(user);
+  const isActiveClient = isActiveClientTier(user);
   const tier = tierBadge(currentTier);
   const displayName =
     `${profile?.profile?.firstName ?? ''} ${profile?.profile?.lastName ?? ''}`.trim() ||
@@ -253,7 +281,7 @@ export default function ProfileScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.upgradeTitle}>Unlock Active Client</Text>
             <Text style={styles.upgradeBody}>
-              Custom workouts, meal plans, and 1-on-1 booking. Payments launching soon via Stripe.
+              Custom workouts, meal plans, and 1-on-1 booking. Upgrade securely via Stripe.
             </Text>
           </View>
           <TouchableOpacity
@@ -266,44 +294,89 @@ export default function ProfileScreen() {
       )}
 
       {isActiveClient && (
+        <>
+          <TouchableOpacity
+            style={styles.manageSubscriptionButton}
+            onPress={handleManageBilling}
+            disabled={openingPortal}
+            accessibilityRole="button"
+            accessibilityLabel="Manage Subscription"
+          >
+            <View style={[styles.manageSubscriptionIcon, { backgroundColor: '#667eea' }]}>
+              <Ionicons name="card-outline" size={20} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.manageSubscriptionTitle}>Manage Subscription</Text>
+              <Text style={styles.manageSubscriptionSubtitle}>
+                Update payment method, view invoices, or cancel via Stripe
+              </Text>
+            </View>
+            {openingPortal ? (
+              <ActivityIndicator size="small" color="#667eea" />
+            ) : (
+              <Ionicons name="chevron-forward" size={20} color="#999" />
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.manageSubscriptionButton}
+            onPress={() =>
+              navigation.getParent()?.navigate('Home', { screen: 'ClientSessions' })
+            }
+            accessibilityRole="button"
+            accessibilityLabel="My Sessions"
+          >
+            <View style={[styles.manageSubscriptionIcon, { backgroundColor: '#4CAF50' }]}>
+              <Ionicons name="calendar-outline" size={20} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.manageSubscriptionTitle}>My Sessions</Text>
+              <Text style={styles.manageSubscriptionSubtitle}>
+                View pending, confirmed, and past appointments
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#999" />
+          </TouchableOpacity>
+        </>
+      )}
+
+      {fitnessTrack === 'athletic' ? (
         <TouchableOpacity
           style={styles.manageSubscriptionButton}
-          onPress={() =>
-            navigation.getParent()?.navigate('Home', { screen: 'ClientSessions' })
-          }
+          onPress={() => navigation.navigate('AthleteCombine')}
           accessibilityRole="button"
-          accessibilityLabel="My Sessions"
+          accessibilityLabel="Combine Stats"
         >
-          <View style={[styles.manageSubscriptionIcon, { backgroundColor: '#4CAF50' }]}>
-            <Ionicons name="calendar-outline" size={20} color="#fff" />
+          <View style={[styles.manageSubscriptionIcon, { backgroundColor: '#FF6B35' }]}>
+            <Ionicons name="barbell-outline" size={20} color="#fff" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.manageSubscriptionTitle}>My Sessions</Text>
+            <Text style={styles.manageSubscriptionTitle}>Combine Stats</Text>
             <Text style={styles.manageSubscriptionSubtitle}>
-              View pending, confirmed, and past appointments
+              Log lifts, dash, and reps — power your team leaderboard
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#999" />
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          style={styles.manageSubscriptionButton}
+          onPress={() => navigation.navigate('AthleteCombine')}
+          accessibilityRole="button"
+          accessibilityLabel="Everyday Client Fitness Test"
+        >
+          <View style={[styles.manageSubscriptionIcon, { backgroundColor: '#4CAF50' }]}>
+            <Ionicons name="heart-outline" size={20} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.manageSubscriptionTitle}>Everyday Client Fitness Test</Text>
+            <Text style={styles.manageSubscriptionSubtitle}>
+              Track push-ups, pull-ups, planks, and your 0–100 wellness score
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={20} color="#999" />
         </TouchableOpacity>
       )}
-
-      <TouchableOpacity
-        style={styles.manageSubscriptionButton}
-        onPress={() => navigation.navigate('AthleteCombine')}
-        accessibilityRole="button"
-        accessibilityLabel="Combine Stats"
-      >
-        <View style={[styles.manageSubscriptionIcon, { backgroundColor: '#FF6B35' }]}>
-          <Ionicons name="barbell-outline" size={20} color="#fff" />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.manageSubscriptionTitle}>Combine Stats</Text>
-          <Text style={styles.manageSubscriptionSubtitle}>
-            Log lifts, dash, and reps — power your team leaderboard
-          </Text>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color="#999" />
-      </TouchableOpacity>
 
       <TouchableOpacity
         style={styles.manageSubscriptionButton}

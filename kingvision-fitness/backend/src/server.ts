@@ -26,12 +26,14 @@ import scheduleRoutes from './routes/schedule.routes';
 import recommendationRoutes from './routes/recommendation.routes';
 import billingRoutes from './routes/billing.routes';
 import adminRoutes from './routes/admin.routes';
+import gamificationRoutes from './routes/gamification.routes';
 import stripeWebhookRoutes from './routes/stripeWebhook.routes';
 import './models/Bubble';
 import './models/Group';
 import './models/MealPlan';
 import './models/Booking';
 import './models/Availability';
+import './models/StripeWebhookEvent';
 import { registerCoachInPocketSockets } from './sockets/coachInPocket.stub';
 import { attachSocketAuth, registerAuthedRoomHandlers } from './sockets/auth';
 
@@ -48,7 +50,9 @@ const io = new Server(httpServer, {
 // Reject unauthenticated socket handshakes BEFORE any handlers register. After
 // this point, every connected socket has a verified `data.userId`.
 attachSocketAuth(io);
-registerCoachInPocketSockets(io);
+if (env.ENABLE_COACH_IN_POCKET_SOCKETS || env.NODE_ENV !== 'production') {
+  registerCoachInPocketSockets(io);
+}
 
 // ── Security headers / CORS / compression / logging ────────────────────────────
 app.use(helmet());
@@ -103,9 +107,10 @@ app.use('/api/schedule', scheduleRoutes);
 app.use('/api/recommendations', recommendationRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/gamification', gamificationRoutes);
 
 // ── Health check ───────────────────────────────────────────────────────────────
-app.get('/health', (req: Request, res: Response) => {
+const healthHandler = (_req: Request, res: Response) => {
   const mongoReady = mongoose.connection.readyState === 1;
   res.status(mongoReady ? 200 : 503).json({
     status: mongoReady ? 'ok' : 'degraded',
@@ -114,7 +119,10 @@ app.get('/health', (req: Request, res: Response) => {
     uptime: process.uptime(),
     environment: env.NODE_ENV,
   });
-});
+};
+
+app.get('/health', healthHandler);
+app.get('/api/health', healthHandler);
 
 app.get('/', (req: Request, res: Response) => {
   res.json({

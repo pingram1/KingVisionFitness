@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { Workout } from '../types/workout';
 import type { WorkoutsStackParamList } from '../navigation/WorkoutsNavigator';
 import { useFocusRefresh } from '../hooks/useFocusRefresh';
+import { hasCustomWorkouts } from '../utils/subscriptionAccess';
 
 type FilterType = 'all' | 'strength' | 'cardio' | 'hiit' | 'flexibility' | 'functional' | 'mixed';
 type DifficultyFilter = 'all' | 'beginner' | 'intermediate' | 'advanced';
@@ -37,7 +38,7 @@ export default function WorkoutsScreen() {
   const [activeTab, setActiveTab] = useState<'weekly' | 'custom'>('weekly');
   const skipTabReloadRef = useRef(true);
 
-  const isActiveClient = user?.subscription?.tier === 'active-client';
+  const isActiveClient = hasCustomWorkouts(user);
 
   const loadWorkouts = useCallback(
     async (showFullScreenLoader = true) => {

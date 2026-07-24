@@ -16,6 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { fetchCustomNutritionPlans, fetchWeeklyNutritionGuides } from '../api/nutrition';
 import type { NutritionMacros, NutritionPlan } from '../types/nutrition';
 import type { HomeStackParamList } from '../navigation/HomeNavigator';
+import { hasCustomNutrition, isSpecifiedOrAbove } from '../utils/subscriptionAccess';
 
 type Nav = NativeStackNavigationProp<HomeStackParamList, 'Nutrition'>;
 
@@ -145,7 +146,9 @@ function LockedCustomSection({ onUpgrade }: { onUpgrade: () => void }) {
         </Text>
         <View style={styles.paymentsBanner}>
           <Ionicons name="card-outline" size={14} color="#92400e" />
-          <Text style={styles.paymentsBannerText}>Secure payments launching soon via Stripe</Text>
+          <Text style={styles.paymentsBannerText}>
+            Upgrade via Stripe on the Membership screen
+          </Text>
         </View>
         <TouchableOpacity style={styles.upgradeButton} onPress={onUpgrade}>
           <Text style={styles.upgradeButtonText}>View Membership Options</Text>
@@ -162,7 +165,8 @@ function LockedCustomSection({ onUpgrade }: { onUpgrade: () => void }) {
 export default function NutritionScreen() {
   const navigation = useNavigation<Nav>();
   const { user } = useAuth();
-  const isActiveClient = user?.subscriptionTier === 'ACTIVE_CLIENT';
+  const isActiveClient = hasCustomNutrition(user);
+  const hasGuidanceLibrary = isSpecifiedOrAbove(user);
 
   const [weeklyGuides, setWeeklyGuides] = useState<NutritionPlan[]>([]);
   const [customPlans, setCustomPlans] = useState<NutritionPlan[]>([]);
@@ -231,6 +235,22 @@ export default function NutritionScreen() {
         </View>
       ) : null}
 
+      <TouchableOpacity
+        style={styles.verifyCard}
+        onPress={() => navigation.navigate('NutritionVerification')}
+      >
+        <View style={styles.verifyIconWrap}>
+          <Ionicons name="checkmark-done-outline" size={22} color="#667eea" />
+        </View>
+        <View style={styles.verifyBody}>
+          <Text style={styles.verifyTitle}>Log Today's Macros</Text>
+          <Text style={styles.verifySubtitle}>
+            Verify meals to build your rolling nutrition score toward Silver and beyond.
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#999" />
+      </TouchableOpacity>
+
       {isActiveClient ? (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Your Custom Meal Plan</Text>
@@ -254,9 +274,13 @@ export default function NutritionScreen() {
       )}
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>General Guides & Tips</Text>
+        <Text style={styles.sectionTitle}>
+          {hasGuidanceLibrary ? 'Nutrition Guidance Library' : 'General Guides & Tips'}
+        </Text>
         <Text style={styles.sectionSubtitle}>
-          Nutrition resources from KingVision — available to all members.
+          {hasGuidanceLibrary
+            ? 'Included with your Specified plan — curated nutrition resources from KingVision.'
+            : 'Nutrition resources from KingVision — available to all members.'}
         </Text>
         {weeklyGuides.length > 0 ? (
           weeklyGuides.map((plan) => <GuideCard key={plan._id} plan={plan} />)
@@ -301,6 +325,39 @@ const styles = StyleSheet.create({
     color: '#667eea',
     fontWeight: '600',
     marginTop: 8,
+  },
+  verifyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#e8e8f0',
+    gap: 12,
+  },
+  verifyIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#667eea15',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  verifyBody: {
+    flex: 1,
+  },
+  verifyTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#222',
+  },
+  verifySubtitle: {
+    fontSize: 12,
+    color: '#777',
+    marginTop: 2,
+    lineHeight: 17,
   },
   section: {
     marginBottom: 24,

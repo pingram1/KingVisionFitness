@@ -41,7 +41,7 @@ export default function ProfileNavigator() {
       <ProfileStack.Screen
         name="AthleteCombine"
         component={AthleteCombineScreen}
-        options={{ title: 'Combine Stats', headerBackTitle: 'Profile' }}
+        options={{ title: 'Fitness Stats', headerBackTitle: 'Profile' }}
       />
       <ProfileStack.Screen
         name="EditProfile"

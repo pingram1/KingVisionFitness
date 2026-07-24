@@ -16,6 +16,7 @@ import { format, parseISO } from 'date-fns';
 import api from '../services/api';
 import type { Booking, BookingStatus, ScheduleUserSummary } from '../types/schedule';
 import type { HomeStackParamList } from '../navigation/HomeNavigator';
+import RequireActiveClient from '../components/RequireActiveClient';
 import { formatDateTime12Hour } from '../utils/dateUtils';
 
 type Nav = NativeStackNavigationProp<HomeStackParamList, 'ClientSessions'>;
@@ -75,6 +76,14 @@ function formatSessionDateTime(startTime: string, endTime: string): { date: stri
  * completed/cancelled history. Clients can cancel their own upcoming bookings.
  */
 export default function ClientSessionsScreen() {
+  return (
+    <RequireActiveClient featureLabel="Session management">
+      <ClientSessionsContent />
+    </RequireActiveClient>
+  );
+}
+
+function ClientSessionsContent() {
   const navigation = useNavigation<Nav>();
 
   const [bookings, setBookings] = useState<Booking[]>([]);

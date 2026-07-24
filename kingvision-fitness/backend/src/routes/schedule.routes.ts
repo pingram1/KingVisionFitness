@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Booking, { BOOKING_STATUSES, type BookingStatus } from '../models/Booking';
 import Availability from '../models/Availability';
 import User from '../models/User';
+import Workout from '../models/Workout';
 import { auth, authorizeRoles, requireSubscriptionTier } from '../middleware/auth';
 import { notifySuperAdminSessionCancelled } from '../services/pushNotification.service';
 
@@ -61,6 +62,26 @@ async function resolvePlatformTrainerId(): Promise<mongoose.Types.ObjectId | nul
 
   const trainer = await User.findOne({ role: 'TRAINER' }).select('_id').lean();
   return trainer?._id ? (trainer._id as mongoose.Types.ObjectId) : null;
+}
+
+/** Prefer the trainer who assigned this client's custom workouts, else platform default. */
+async function resolveTrainerForClient(
+  clientId: mongoose.Types.ObjectId
+): Promise<mongoose.Types.ObjectId | null> {
+  const customWorkout = await Workout.findOne({
+    isCustom: true,
+    isActive: true,
+    assignedTo: clientId,
+  })
+    .sort({ updatedAt: -1 })
+    .select('createdBy')
+    .lean();
+
+  if (customWorkout?.createdBy) {
+    return new mongoose.Types.ObjectId(String(customWorkout.createdBy));
+  }
+
+  return resolvePlatformTrainerId();
 }
 
 async function fetchTrainerAvailabilityTemplate(trainerId: mongoose.Types.ObjectId) {
@@ -286,9 +307,9 @@ router.get(
   '/available-slots',
   auth,
   requireSubscriptionTier('ACTIVE_CLIENT'),
-  async (_req: any, res: any) => {
+  async (req: any, res: any) => {
     try {
-      const trainerId = await resolvePlatformTrainerId();
+      const trainerId = await resolveTrainerForClient(req.user._id);
       if (!trainerId) {
         return res.status(503).json({
           success: false,
@@ -384,7 +405,7 @@ router.post(
         });
       }
 
-      const trainerId = await resolvePlatformTrainerId();
+      const trainerId = await resolveTrainerForClient(req.user._id);
       if (!trainerId) {
         return res.status(503).json({
           success: false,

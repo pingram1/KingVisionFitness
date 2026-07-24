@@ -16,6 +16,7 @@ export interface LoggedExercisePayload {
 export interface CompleteWorkoutPayload {
   startTime: string;
   endTime: string;
+  pausedDurationMs?: number;
   loggedExercises: LoggedExercisePayload[];
 }
 

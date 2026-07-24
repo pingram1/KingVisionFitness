@@ -1,0 +1,16 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+npm-debug.log*
+.git
+.gitignore
+coverage
+*.md
+scripts
+src/__tests__
+**/*.test.ts
+**/*.test.js
+nodemon.json
+start-dev.js

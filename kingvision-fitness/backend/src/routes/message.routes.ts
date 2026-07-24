@@ -3,61 +3,30 @@ import { auth } from '../middleware/auth';
 
 const router: Router = express.Router();
 
+const NOT_IMPLEMENTED = {
+  success: false,
+  message: 'Messaging is not yet implemented.',
+};
+
 // @route   GET /api/messages
-// @desc    Get user's messages
+// @desc    Deprecated stub — messaging not yet implemented
 // @access  Private
-router.get('/', auth, async (req: any, res: any) => {
-  try {
-    // TODO: Implement messages retrieval
-    res.json({
-      success: true,
-      message: 'Messages endpoint',
-      data: []
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching messages'
-    });
-  }
+router.get('/', auth, async (_req: any, res: any) => {
+  res.status(501).json(NOT_IMPLEMENTED);
 });
 
 // @route   POST /api/messages
-// @desc    Send a message
+// @desc    Deprecated stub — messaging not yet implemented
 // @access  Private
-router.post('/', auth, async (req: any, res: any) => {
-  try {
-    // TODO: Implement send message
-    res.json({
-      success: true,
-      message: 'Send message endpoint',
-      data: req.body
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error sending message'
-    });
-  }
+router.post('/', auth, async (_req: any, res: any) => {
+  res.status(501).json(NOT_IMPLEMENTED);
 });
 
 // @route   GET /api/messages/:userId
-// @desc    Get conversation with specific user
+// @desc    Deprecated stub — messaging not yet implemented
 // @access  Private
-router.get('/:userId', auth, async (req: any, res: any) => {
-  try {
-    // TODO: Implement conversation retrieval
-    res.json({
-      success: true,
-      message: 'Conversation endpoint',
-      data: { userId: req.params.userId }
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching conversation'
-    });
-  }
+router.get('/:userId', auth, async (_req: any, res: any) => {
+  res.status(501).json(NOT_IMPLEMENTED);
 });
 
 export default router;

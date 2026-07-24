@@ -6,6 +6,7 @@ import Nutrition, {
   type NutritionDistributionType,
   type NutritionPlanType,
 } from '../models/Nutrition';
+import User from '../models/User';
 import { auth, authorizeRoles, requireSubscriptionTier } from '../middleware/auth';
 
 const router: Router = express.Router();
@@ -138,6 +139,18 @@ router.post(
             });
           }
           assignedIds.push(new mongoose.Types.ObjectId(String(id)));
+        }
+
+        const validClients = await User.find({
+          _id: { $in: assignedIds },
+          subscriptionTier: 'ACTIVE_CLIENT',
+        }).select('_id');
+
+        if (validClients.length !== assignedIds.length) {
+          return res.status(400).json({
+            success: false,
+            message: 'One or more assigned clients are invalid or not ACTIVE_CLIENT tier',
+          });
         }
       }
 
@@ -283,14 +296,22 @@ router.get(
 // @desc    Legacy recipe stub kept for backwards compatibility
 // @access  Public
 router.get('/recipes', async (_req: any, res: any) => {
-  res.json({ success: true, data: [] });
+  res.set('Deprecation', 'true');
+  res.status(410).json({
+    success: false,
+    message: 'Legacy recipes endpoint removed — use GET /api/nutrition/weekly',
+  });
 });
 
 // @route   GET /api/nutrition/meal-plans
-// @desc    Legacy meal plan stub kept for backwards compatibility
+// @desc    Legacy meal plan stub — removed
 // @access  Private
 router.get('/meal-plans', auth, async (_req: any, res: any) => {
-  res.json({ success: true, data: [] });
+  res.set('Deprecation', 'true');
+  res.status(410).json({
+    success: false,
+    message: 'Legacy meal-plans endpoint removed — use GET /api/nutrition/custom',
+  });
 });
 
 export default router;

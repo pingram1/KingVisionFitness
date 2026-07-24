@@ -19,6 +19,16 @@ import {
   previewAthleteStats,
   saveAthleteStats,
 } from '../api/athleteStats';
+import { useAuth } from '../context/AuthContext';
+import api from '../services/api';
+import { useFitnessTrack } from '../hooks/useFitnessTrack';
+import {
+  combineDisclaimerText,
+  fitnessTrackUserFromProfile,
+  type FitnessTrackUser,
+} from '../utils/fitnessTrack';
+import EverydayFitnessScreen from './EverydayFitnessScreen';
+import type { UserProfile } from '../types/user';
 import {
   AthleteStatsFormState,
   AthleteStatsPayload,
@@ -309,7 +319,14 @@ function GradeCard({ breakdown, previewing }: GradeCardProps) {
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
-export default function AthleteCombineScreen() {
+function AthleticCombineContent({
+  trackUser,
+  onForbidden,
+}: {
+  trackUser: FitnessTrackUser;
+  onForbidden?: () => void;
+}) {
+  const disclaimer = useMemo(() => combineDisclaimerText(trackUser), [trackUser]);
   const [form, setForm] = useState<AthleteStatsFormState>(EMPTY_ATHLETE_FORM);
   const [savedBreakdown, setSavedBreakdown] = useState<PerformanceBreakdown | null>(null);
   const [livePreview, setLivePreview] = useState<PerformanceBreakdown | null>(null);
@@ -333,13 +350,18 @@ export default function AthleteCombineScreen() {
       setSavedBreakdown(stats.performanceBreakdown ?? null);
       setLivePreview(stats.performanceBreakdown ?? null);
       setLastUpdatedAt(stats.lastUpdatedAt);
-    } catch (err) {
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 403) {
+        onForbidden?.();
+        return;
+      }
       console.error('Failed to load athlete stats', err);
       setError('Could not load your combine stats. Pull to refresh.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onForbidden]);
 
   useEffect(() => {
     load(true);
@@ -552,12 +574,54 @@ export default function AthleteCombineScreen() {
           <Text style={styles.lastUpdatedText}>Last updated {lastUpdatedDisplay}</Text>
         ) : null}
 
-        <Text style={styles.disclaimer}>
-          Scores are bodyweight-relative. A 185 lb athlete squatting 315 (1.7× BW) will outrank
-          a 300 lb athlete squatting 365 (1.2× BW) — that's by design.
-        </Text>
+        <Text style={styles.disclaimer}>{disclaimer}</Text>
       </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+/** Routes users to athletic combine or everyday fitness based on designation / team role only. */
+export default function AthleteCombineScreen() {
+  const { user } = useAuth();
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [forceEveryday, setForceEveryday] = useState(false);
+  const { track, loading: trackLoading } = useFitnessTrack();
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ success: boolean; data: UserProfile }>('/users/profile')
+      .then((response) => {
+        if (!cancelled) setProfile(response.data.data);
+      })
+      .catch(() => {
+        // Profile is optional — track resolution falls back to auth user fields.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const trackUser = fitnessTrackUserFromProfile([user, profile]);
+
+  if (trackLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#667eea" />
+        <Text style={styles.loadingText}>Loading your fitness test…</Text>
+      </View>
+    );
+  }
+
+  if (track === 'everyday' || forceEveryday) {
+    return <EverydayFitnessScreen />;
+  }
+
+  return (
+    <AthleticCombineContent
+      trackUser={trackUser}
+      onForbidden={() => setForceEveryday(true)}
+    />
   );
 }
 

@@ -3,6 +3,7 @@ import User, { UserRole } from '../models/User';
 import Group from '../models/Group';
 import { Request, Response, NextFunction } from 'express';
 import { env } from '../config/env';
+import { isActiveClientTier, resolveEffectiveTier } from '../utils/subscriptionTier';
 
 const JWT_VERIFY_OPTIONS: jwt.VerifyOptions = { algorithms: ['HS256'] };
 
@@ -91,8 +92,9 @@ export const authorizeRoles = (...roles: UserRole[]) => {
     }
 
     const userRole = req.user.role;
+    const isTrainerFlag = req.user.trainer?.isTrainer === true;
 
-    if (!userRole || !roles.includes(userRole)) {
+    if (!userRole || (!roles.includes(userRole) && !(roles.includes('TRAINER') && isTrainerFlag))) {
       return res.status(403).json({
         success: false,
         message: 'Forbidden: insufficient role privileges',
@@ -117,19 +119,14 @@ export const requireActiveClient = async (
       });
     }
 
-    const productTier = req.user.subscriptionTier ?? 'BASIC';
-    const legacyTier = req.user.subscription?.tier;
-
-    const isActiveClient =
-      productTier === 'ACTIVE_CLIENT' || legacyTier === 'active-client';
-
-    if (!isActiveClient) {
+    if (!isActiveClientTier(req.user)) {
       return res.status(403).json({
         success: false,
         message: 'This feature requires an Active Client subscription'
       });
     }
 
+    const productTier = resolveEffectiveTier(req.user);
     if (
       req.user.subscription?.status &&
       req.user.subscription.status !== 'active' &&
@@ -160,7 +157,7 @@ export const requireSubscriptionTier = (...tiers: string[]) => {
       });
     }
 
-    const userTier = req.user.subscriptionTier ?? 'BASIC';
+    const userTier = resolveEffectiveTier(req.user);
     if (!tiers.includes(userTier)) {
       return res.status(403).json({
         success: false,
